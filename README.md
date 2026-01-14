@@ -22,6 +22,6 @@ Développer une application **mobile-first**, moderne et sécurisée, permettant
 
 ## 👨‍💻 Équipe
 
-**Hassani Isaac** · **Ylan Pernot**
+**Hassani Isaac** · **Ilane Mac-luckie** · **Arnaud Nathan** · **Delhem Mohamed-Amine**
 
 Projet académique — SUP DE VINCI
