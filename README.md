@@ -2,7 +2,9 @@
 
 > Plateforme e-commerce SaaS dédiée aux solutions de cybersécurité **SOC · EDR · XDR**
 
-https://github.com/user-attachments/assets/0d693755-271b-4dcf-bc56-9719b3882b37
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/0d693755-271b-4dcf-bc56-9719b3882b37" alt="Logo CYNA" width="400">
+</p>
 
 ## ✨ Objectif
 
