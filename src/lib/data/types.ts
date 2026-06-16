@@ -44,13 +44,29 @@ export type CarouselItem = {
   created_at: string;
 };
 
-export type ProductSort = 'default' | 'priority' | 'availability' | 'price_asc' | 'price_desc' | 'name';
+export type ProductSort =
+  | 'default'
+  | 'priority'
+  | 'availability'
+  | 'price_asc'
+  | 'price_desc'
+  | 'name'
+  | 'newest';
 
 export type StockFilter = StockStatus | 'all';
 
 export type ProductQuery = {
+  /** Single category id. Mutually inclusive with `categoryIds`. */
   categoryId?: string;
+  /** Multi-select category filter; supersedes `categoryId` when non-empty. */
+  categoryIds?: string[];
+  /** Single stock filter (with the implicit "all" escape hatch). */
   stockStatus?: StockFilter;
+  /** Multi-select stock filter; supersedes `stockStatus` when non-empty. */
+  stockStatuses?: StockStatus[];
   search?: string;
+  /** Filter by monthly price (inclusive). Skipped if undefined. */
+  minPrice?: number;
+  maxPrice?: number;
   sort?: ProductSort;
 };
