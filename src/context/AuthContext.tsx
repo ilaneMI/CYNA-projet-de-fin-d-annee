@@ -33,6 +33,7 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<Result>;
   updateProfile: (updates: Partial<CurrentUser>) => Promise<Result>;
+  updatePassword: (currentPassword: string, newPassword: string) => Promise<Result>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -234,6 +235,60 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // FIXME-SECURITY: provisional client-side password update. Verifies the
+  // current password by re-hashing client-side and comparing to the stored
+  // SHA-256, then writes the new hash to localStorage. When Supabase Auth
+  // lands, this becomes `supabase.auth.updateUser({ password })` server-side
+  // (bcrypt, JWT-authenticated) with mandatory current-password verification
+  // also server-side. The whole flow below must then be deleted.
+  const updatePassword = async (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<Result> => {
+    try {
+      if (!currentUser) throw new Error('Not authenticated');
+
+      const policy = validatePassword(newPassword);
+      if (!policy.isValid) {
+        throw new Error(policy.errors.join('. '));
+      }
+
+      if (SUPABASE_ENABLED) {
+        // Real flow: Supabase Auth.updateUser handles hashing server-side.
+        return { success: false, error: 'Not implemented in this stub.' };
+      }
+
+      const users = JSON.parse(localStorage.getItem('users') ?? '[]') as StoredUser[];
+      const userIndex = users.findIndex((u) => u.id === currentUser.id);
+      if (userIndex === -1) {
+        throw new Error('User not found');
+      }
+
+      const currentHash = await hashPassword(currentPassword);
+      if (currentHash !== users[userIndex].password_hash) {
+        throw new Error('Current password is incorrect');
+      }
+
+      const newHash = await hashPassword(newPassword);
+      users[userIndex] = {
+        ...users[userIndex],
+        password_hash: newHash,
+        updated_at: new Date().toISOString(),
+      };
+      localStorage.setItem('users', JSON.stringify(users));
+
+      toast({
+        title: 'Password updated',
+        description: 'Your password has been successfully changed.',
+      });
+      return { success: true };
+    } catch (error) {
+      const message = errorMessage(error);
+      toast({ title: 'Password update failed', description: message, variant: 'destructive' });
+      return { success: false, error: message };
+    }
+  };
+
   const value: AuthContextValue = {
     currentUser,
     isAuthenticated,
@@ -243,6 +298,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     logout,
     resetPassword,
     updateProfile,
+    updatePassword,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
