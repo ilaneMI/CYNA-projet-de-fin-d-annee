@@ -34,6 +34,8 @@ const compareProducts = (sort: ProductQuery['sort']) => (a: Product, b: Product)
       return a.name.localeCompare(b.name, 'fr');
     case 'availability':
       return STOCK_ORDER[a.stock_status] - STOCK_ORDER[b.stock_status];
+    case 'newest':
+      return Date.parse(b.created_at) - Date.parse(a.created_at);
     case 'priority':
     case 'default':
     case undefined:
@@ -42,13 +44,38 @@ const compareProducts = (sort: ProductQuery['sort']) => (a: Product, b: Product)
   }
 };
 
+const matchesCategory = (product: Product, query: ProductQuery): boolean => {
+  if (query.categoryIds && query.categoryIds.length > 0) {
+    return query.categoryIds.includes(product.category_id);
+  }
+  if (query.categoryId) {
+    return product.category_id === query.categoryId;
+  }
+  return true;
+};
+
+const matchesStock = (product: Product, query: ProductQuery): boolean => {
+  if (query.stockStatuses && query.stockStatuses.length > 0) {
+    return query.stockStatuses.includes(product.stock_status);
+  }
+  if (query.stockStatus && query.stockStatus !== 'all') {
+    return product.stock_status === query.stockStatus;
+  }
+  return true;
+};
+
+const matchesPrice = (product: Product, query: ProductQuery): boolean => {
+  if (query.minPrice !== undefined && product.price_monthly < query.minPrice) return false;
+  if (query.maxPrice !== undefined && product.price_monthly > query.maxPrice) return false;
+  return true;
+};
+
 export async function getProducts(query: ProductQuery = {}): Promise<Product[]> {
   const all = normalize(demoProducts);
   const filtered = all.filter((product) => {
-    if (query.categoryId && product.category_id !== query.categoryId) return false;
-    if (query.stockStatus && query.stockStatus !== 'all' && product.stock_status !== query.stockStatus) {
-      return false;
-    }
+    if (!matchesCategory(product, query)) return false;
+    if (!matchesStock(product, query)) return false;
+    if (!matchesPrice(product, query)) return false;
     if (query.search && !matchesSearch(product, query.search)) return false;
     return true;
   });
