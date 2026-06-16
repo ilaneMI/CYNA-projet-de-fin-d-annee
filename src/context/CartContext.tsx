@@ -14,6 +14,8 @@ export type CartItem = Product & {
 
 type CartContextValue = {
   cartItems: CartItem[];
+  /** False during SSR and the first client paint, true after the localStorage read. */
+  hydrated: boolean;
   addToCart: (product: Product, subscriptionDuration?: SubscriptionDuration, quantity?: number) => void;
   removeFromCart: (cartId: string) => void;
   updateQuantity: (cartId: string, quantity: number) => void;
@@ -132,6 +134,7 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
   const value: CartContextValue = {
     cartItems,
+    hydrated,
     addToCart,
     removeFromCart,
     updateQuantity,
