@@ -1,78 +1,38 @@
+import { createBrowserClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 /**
- * Supabase client stub.
+ * Browser-side Supabase singleton.
  *
- * TODO: when Supabase integration lands, replace the mock with `createClient`
- * from `@supabase/supabase-js` and read `NEXT_PUBLIC_SUPABASE_URL` /
- * `NEXT_PUBLIC_SUPABASE_ANON_KEY` from `process.env`.
+ * The anon key is safe to ship to the client; Row Level Security on the
+ * Postgres side is what actually gates access. The service-role key must
+ * NEVER be read here — it lives in `process.env.SUPABASE_SERVICE_ROLE_KEY`
+ * and stays server-only.
  *
- * Until then `SUPABASE_ENABLED` stays `false` and the app falls back to
- * `localStorage` (see `AuthContext`).
+ * NEXT_PUBLIC_* vars are inlined at build time. When they are absent
+ * (local dev without an .env.local), `SUPABASE_ENABLED` is `false` and
+ * `supabase` is replaced by a proxy that throws on any access. This keeps
+ * the existing `AuthContext` `if (SUPABASE_ENABLED) … else { localStorage }`
+ * branches working untouched while the auth lot is still ahead of us.
  */
 
-export const SUPABASE_ENABLED = false;
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-type PostgrestError = { message: string };
+export const SUPABASE_ENABLED: boolean = Boolean(url && key);
 
-type AuthResult<T = unknown> = { data: T | null; error: PostgrestError | null };
+const missingEnvError = (): Error =>
+  new Error(
+    'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and ' +
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.',
+  );
 
-type AuthUser = {
-  id: string;
-  email?: string;
-  user_metadata?: { full_name?: string };
-};
-
-type SignUpArgs = {
-  email: string;
-  password: string;
-  options?: { data?: Record<string, unknown> };
-};
-
-type SignInArgs = { email: string; password: string };
-
-type QueryResult = { data: unknown; error: PostgrestError | null };
-
-type QueryBuilder = QueryResult & {
-  select: () => QueryBuilder;
-  insert: (values?: unknown) => QueryBuilder;
-  update: (values?: unknown) => QueryBuilder;
-  delete: () => QueryBuilder;
-  eq: (column: string, value: unknown) => QueryBuilder;
-};
-
-const notConfigured = <T>(): AuthResult<T> => ({
-  data: null,
-  error: { message: 'Supabase not configured' },
+const guardedStub = new Proxy({} as SupabaseClient, {
+  get() {
+    throw missingEnvError();
+  },
 });
 
-const queryBuilder = (): QueryBuilder => {
-  const builder = {
-    data: null as unknown,
-    error: null as PostgrestError | null,
-  } as QueryBuilder;
-  builder.select = () => builder;
-  builder.insert = () => builder;
-  builder.update = () => builder;
-  builder.delete = () => builder;
-  builder.eq = () => builder;
-  return builder;
-};
-
-export const supabase = {
-  auth: {
-    signUp: async (_args: SignUpArgs): Promise<AuthResult<{ user: AuthUser | null }>> =>
-      notConfigured<{ user: AuthUser | null }>(),
-    signInWithPassword: async (
-      _args: SignInArgs,
-    ): Promise<AuthResult<{ user: AuthUser | null }>> => notConfigured<{ user: AuthUser | null }>(),
-    signOut: async (): Promise<{ error: PostgrestError | null }> => ({ error: null }),
-    resetPasswordForEmail: async (_email: string): Promise<AuthResult> => ({
-      data: null,
-      error: null,
-    }),
-    getSession: async (): Promise<{ data: { session: null }; error: PostgrestError | null }> => ({
-      data: { session: null },
-      error: null,
-    }),
-  },
-  from: (_table: string): QueryBuilder => queryBuilder(),
-};
+export const supabase: SupabaseClient = SUPABASE_ENABLED
+  ? createBrowserClient(url as string, key as string)
+  : guardedStub;
