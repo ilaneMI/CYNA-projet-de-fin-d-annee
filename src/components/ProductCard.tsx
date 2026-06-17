@@ -53,7 +53,7 @@ export default function ProductCard({ product }: { product: Product }) {
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Mensuel</span>
                 <span className="text-sm font-semibold text-primary">
-                  ${product.price_monthly.toLocaleString()}/mois
+                  {`${product.price_monthly.toLocaleString('fr-FR')} €/mois`}
                 </span>
               </div>
             )}
@@ -61,7 +61,7 @@ export default function ProductCard({ product }: { product: Product }) {
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Annuel</span>
                 <span className="text-sm font-semibold text-primary">
-                  ${product.price_annual.toLocaleString()}/an
+                  {`${product.price_annual.toLocaleString('fr-FR')} €/an`}
                 </span>
               </div>
             )}
