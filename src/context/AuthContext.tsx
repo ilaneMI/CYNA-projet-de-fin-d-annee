@@ -1,25 +1,18 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { supabase, SUPABASE_ENABLED } from '@/lib/supabase';
-import { validateEmail, validatePassword, hashPassword, generateSessionToken } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
+import { validateEmail, validatePassword } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
+
+export type UserRole = 'client' | 'admin';
 
 export type CurrentUser = {
   id: string;
   email: string;
   full_name?: string;
-};
-
-type StoredUser = CurrentUser & {
-  password_hash: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type StoredSession = {
-  user: CurrentUser;
-  expiresAt: number;
+  /** Role from public.profiles. Drives the admin gate (sub-step 3). */
+  role: UserRole;
 };
 
 type Result<T = unknown> = { success: true; data?: T } | { success: false; error: string };
@@ -27,6 +20,7 @@ type Result<T = unknown> = { success: true; data?: T } | { success: false; error
 type AuthContextValue = {
   currentUser: CurrentUser | null;
   isAuthenticated: boolean;
+  /** SSR hydration anti-mismatch flag: true until the initial session is resolved. */
   loading: boolean;
   register: (email: string, password: string, fullName: string) => Promise<Result>;
   login: (email: string, password: string) => Promise<Result>;
@@ -39,15 +33,63 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const useAuth = (): AuthContextValue => {
-  const context = useContext(AuthContext);
-  if (!context) {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
     throw new Error('useAuth must be used within AuthProvider');
   }
-  return context;
+  return ctx;
 };
 
 const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : 'Unknown error';
+  error instanceof Error ? error.message : 'Erreur inconnue';
+
+/**
+ * Maps Supabase auth error strings (English) to the French UI messages
+ * the app was already showing. Unknown errors fall through unchanged.
+ */
+const mapAuthError = (raw: string): string => {
+  const m = raw.toLowerCase();
+  if (m.includes('invalid login credentials') || m.includes('invalid credentials')) {
+    return 'Identifiants invalides.';
+  }
+  if (m.includes('already registered') || m.includes('user already')) {
+    return 'Un compte existe déjà avec cet email.';
+  }
+  if (m.includes('email not confirmed')) {
+    return 'Email non confirmé. Vérifiez votre boîte de réception.';
+  }
+  if (m.includes('email rate limit') || m.includes('too many requests')) {
+    return 'Trop de tentatives. Réessayez dans quelques minutes.';
+  }
+  return raw;
+};
+
+type ProfileRow = {
+  id: string;
+  full_name: string | null;
+  role: UserRole;
+};
+
+/**
+ * Reads the per-user metadata from public.profiles. The RLS policy
+ * `profiles_self_or_admin_read` already gates this to the calling user
+ * (or admins), so no extra check is needed here.
+ */
+const fetchProfile = async (userId: string, email: string): Promise<CurrentUser | null> => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as ProfileRow;
+  return {
+    id: row.id,
+    email,
+    full_name: row.full_name ?? undefined,
+    role: row.role,
+  };
+};
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -56,235 +98,209 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const { toast } = useToast();
 
   useEffect(() => {
-    const raw = localStorage.getItem('session');
-    if (raw) {
-      const session = JSON.parse(raw) as StoredSession;
-      if (session.expiresAt > Date.now()) {
-        setCurrentUser(session.user);
-        setIsAuthenticated(true);
-      } else {
-        localStorage.removeItem('session');
+    let mounted = true;
+
+    // Resolve the initial session at mount, then keep it in sync with
+    // refresh-token rotations and sign-outs from other tabs.
+    void (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (session?.user) {
+        const profile = await fetchProfile(session.user.id, session.user.email ?? '');
+        if (!mounted) return;
+        if (profile) {
+          setCurrentUser(profile);
+          setIsAuthenticated(true);
+        }
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    })();
+
+    const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
+      void (async () => {
+        if (session?.user) {
+          const profile = await fetchProfile(session.user.id, session.user.email ?? '');
+          if (!mounted) return;
+          if (profile) {
+            setCurrentUser(profile);
+            setIsAuthenticated(true);
+          }
+        } else {
+          if (!mounted) return;
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+        }
+      })();
+    });
+
+    return () => {
+      mounted = false;
+      authSub.subscription.unsubscribe();
+    };
   }, []);
 
   const register = async (email: string, password: string, fullName: string): Promise<Result> => {
     try {
       if (!validateEmail(email)) {
-        throw new Error('Invalid email format');
+        throw new Error("Format d'email invalide.");
+      }
+      const policy = validatePassword(password);
+      if (!policy.isValid) {
+        throw new Error(policy.errors.join('. '));
       }
 
-      const passwordValidation = validatePassword(password);
-      if (!passwordValidation.isValid) {
-        throw new Error(passwordValidation.errors.join('. '));
-      }
-
-      if (SUPABASE_ENABLED) {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: fullName } },
-        });
-        if (error) throw new Error(error.message);
-        toast({
-          title: 'Registration successful!',
-          description: 'Please check your email to verify your account.',
-        });
-        return { success: true, data };
-      }
-
-      const users = JSON.parse(localStorage.getItem('users') ?? '[]') as StoredUser[];
-      if (users.some((u) => u.email === email)) {
-        throw new Error('User already exists with this email');
-      }
-
-      const passwordHash = await hashPassword(password);
-      const newUser: StoredUser = {
-        id: generateSessionToken(),
+      const { data, error } = await supabase.auth.signUp({
         email,
-        password_hash: passwordHash,
-        full_name: fullName,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      users.push(newUser);
-      localStorage.setItem('users', JSON.stringify(users));
-
-      toast({
-        title: 'Registration successful!',
-        description: 'You can now log in with your credentials.',
+        password,
+        options: { data: { full_name: fullName } },
       });
-      return { success: true, data: newUser };
-    } catch (error) {
-      const message = errorMessage(error);
-      toast({ title: 'Registration failed', description: message, variant: 'destructive' });
+      if (error) throw new Error(mapAuthError(error.message));
+
+      // The profile row is created by the on_auth_user_created trigger.
+      // With "Confirm email" disabled in the dashboard, the session is
+      // returned immediately; onAuthStateChange picks it up and fetches
+      // the profile.
+      toast({
+        title: 'Inscription réussie !',
+        description: 'Vous êtes maintenant connecté.',
+      });
+      return { success: true, data };
+    } catch (err) {
+      const message = errorMessage(err);
+      toast({ title: "Échec de l'inscription", description: message, variant: 'destructive' });
       return { success: false, error: message };
     }
   };
 
   const login = async (email: string, password: string): Promise<Result> => {
     try {
-      if (SUPABASE_ENABLED) {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw new Error(error.message);
-        if (data?.user) {
-          setCurrentUser({
-            id: data.user.id,
-            email: data.user.email ?? email,
-            full_name: data.user.user_metadata?.full_name,
-          });
-          setIsAuthenticated(true);
-        }
-        toast({ title: 'Welcome back!', description: 'You have successfully logged in.' });
-        return { success: true, data };
-      }
-
-      const users = JSON.parse(localStorage.getItem('users') ?? '[]') as StoredUser[];
-      const passwordHash = await hashPassword(password);
-      const user = users.find((u) => u.email === email && u.password_hash === passwordHash);
-      if (!user) {
-        throw new Error('Invalid email or password');
-      }
-
-      const session: StoredSession = {
-        user: { id: user.id, email: user.email, full_name: user.full_name },
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      };
-      localStorage.setItem('session', JSON.stringify(session));
-      setCurrentUser(session.user);
-      setIsAuthenticated(true);
-      toast({ title: 'Welcome back!', description: 'You have successfully logged in.' });
-      return { success: true, data: session };
-    } catch (error) {
-      const message = errorMessage(error);
-      toast({ title: 'Login failed', description: message, variant: 'destructive' });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw new Error(mapAuthError(error.message));
+      // currentUser / isAuthenticated populated by onAuthStateChange.
+      toast({ title: 'Bon retour !', description: 'Vous êtes connecté.' });
+      return { success: true, data };
+    } catch (err) {
+      const message = errorMessage(err);
+      toast({ title: 'Échec de la connexion', description: message, variant: 'destructive' });
       return { success: false, error: message };
     }
   };
 
   const logout = async (): Promise<void> => {
     try {
-      if (SUPABASE_ENABLED) {
-        await supabase.auth.signOut();
-      }
-      localStorage.removeItem('session');
-      setCurrentUser(null);
-      setIsAuthenticated(false);
-      toast({ title: 'Logged out', description: 'You have been successfully logged out.' });
-    } catch (error) {
-      toast({ title: 'Logout failed', description: errorMessage(error), variant: 'destructive' });
+      const { error } = await supabase.auth.signOut();
+      if (error) throw new Error(error.message);
+      // onAuthStateChange clears the user.
+      toast({ title: 'Déconnecté', description: 'Vous êtes déconnecté.' });
+    } catch (err) {
+      toast({
+        title: 'Échec de la déconnexion',
+        description: errorMessage(err),
+        variant: 'destructive',
+      });
     }
   };
 
   const resetPassword = async (email: string): Promise<Result> => {
     try {
       if (!validateEmail(email)) {
-        throw new Error('Invalid email format');
+        throw new Error("Format d'email invalide.");
       }
-      if (SUPABASE_ENABLED) {
-        const { error } = await supabase.auth.resetPasswordForEmail(email);
-        if (error) throw new Error(error.message);
-      }
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw new Error(mapAuthError(error.message));
       toast({
-        title: 'Password reset email sent',
-        description: 'Please check your email for instructions.',
+        title: 'Email de réinitialisation envoyé',
+        description: 'Vérifiez votre email pour les instructions.',
       });
       return { success: true };
-    } catch (error) {
-      const message = errorMessage(error);
-      toast({ title: 'Password reset failed', description: message, variant: 'destructive' });
+    } catch (err) {
+      const message = errorMessage(err);
+      toast({
+        title: 'Échec de la réinitialisation',
+        description: message,
+        variant: 'destructive',
+      });
       return { success: false, error: message };
     }
   };
 
   const updateProfile = async (updates: Partial<CurrentUser>): Promise<Result> => {
     try {
-      if (!currentUser) throw new Error('Not authenticated');
+      if (!currentUser) throw new Error('Non authentifié.');
 
-      if (SUPABASE_ENABLED) {
-        const { error } = await supabase.from('users').update(updates).eq('id', currentUser.id);
-        if (error) throw new Error(error.message);
-      } else {
-        const users = JSON.parse(localStorage.getItem('users') ?? '[]') as StoredUser[];
-        const userIndex = users.findIndex((u) => u.id === currentUser.id);
-        if (userIndex !== -1) {
-          users[userIndex] = {
-            ...users[userIndex],
-            ...updates,
-            updated_at: new Date().toISOString(),
-          };
-          localStorage.setItem('users', JSON.stringify(users));
-
-          const sessionRaw = localStorage.getItem('session');
-          if (sessionRaw) {
-            const session = JSON.parse(sessionRaw) as StoredSession;
-            session.user = { ...session.user, ...updates };
-            localStorage.setItem('session', JSON.stringify(session));
-            setCurrentUser(session.user);
-          }
-        }
+      // The column grants on public.profiles only allow `authenticated`
+      // to update `full_name`. Any other field (role, is_active, email)
+      // is silently dropped here so the SQL call never gets rejected.
+      const allowed: { full_name?: string | null } = {};
+      if ('full_name' in updates) {
+        allowed.full_name = updates.full_name ?? null;
       }
 
-      toast({ title: 'Profile updated', description: 'Your profile has been successfully updated.' });
+      if (Object.keys(allowed).length > 0) {
+        const { error } = await supabase
+          .from('profiles')
+          .update(allowed)
+          .eq('id', currentUser.id);
+        if (error) throw new Error(error.message);
+      }
+
+      const next = await fetchProfile(currentUser.id, currentUser.email);
+      if (next) setCurrentUser(next);
+
+      toast({
+        title: 'Profil mis à jour',
+        description: 'Vos informations ont été mises à jour.',
+      });
       return { success: true };
-    } catch (error) {
-      const message = errorMessage(error);
-      toast({ title: 'Update failed', description: message, variant: 'destructive' });
+    } catch (err) {
+      const message = errorMessage(err);
+      toast({ title: 'Échec de la mise à jour', description: message, variant: 'destructive' });
       return { success: false, error: message };
     }
   };
 
-  // FIXME-SECURITY: provisional client-side password update. Verifies the
-  // current password by re-hashing client-side and comparing to the stored
-  // SHA-256, then writes the new hash to localStorage. When Supabase Auth
-  // lands, this becomes `supabase.auth.updateUser({ password })` server-side
-  // (bcrypt, JWT-authenticated) with mandatory current-password verification
-  // also server-side. The whole flow below must then be deleted.
   const updatePassword = async (
     currentPassword: string,
     newPassword: string,
   ): Promise<Result> => {
     try {
-      if (!currentUser) throw new Error('Not authenticated');
+      if (!currentUser) throw new Error('Non authentifié.');
 
       const policy = validatePassword(newPassword);
       if (!policy.isValid) {
         throw new Error(policy.errors.join('. '));
       }
 
-      if (SUPABASE_ENABLED) {
-        // Real flow: Supabase Auth.updateUser handles hashing server-side.
-        return { success: false, error: 'Not implemented in this stub.' };
+      // Supabase has no "verify current password" primitive — re-sign-in
+      // with the supplied current password before applying the new one.
+      // A successful signIn refreshes the session; a failure means the
+      // current password was wrong and we surface the same FR message
+      // the previous client-side flow used.
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: currentUser.email,
+        password: currentPassword,
+      });
+      if (signInErr) {
+        throw new Error('Mot de passe actuel incorrect.');
       }
 
-      const users = JSON.parse(localStorage.getItem('users') ?? '[]') as StoredUser[];
-      const userIndex = users.findIndex((u) => u.id === currentUser.id);
-      if (userIndex === -1) {
-        throw new Error('User not found');
-      }
-
-      const currentHash = await hashPassword(currentPassword);
-      if (currentHash !== users[userIndex].password_hash) {
-        throw new Error('Current password is incorrect');
-      }
-
-      const newHash = await hashPassword(newPassword);
-      users[userIndex] = {
-        ...users[userIndex],
-        password_hash: newHash,
-        updated_at: new Date().toISOString(),
-      };
-      localStorage.setItem('users', JSON.stringify(users));
+      const { error: updateErr } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateErr) throw new Error(mapAuthError(updateErr.message));
 
       toast({
-        title: 'Password updated',
-        description: 'Your password has been successfully changed.',
+        title: 'Mot de passe mis à jour',
+        description: 'Votre mot de passe a été changé.',
       });
       return { success: true };
-    } catch (error) {
-      const message = errorMessage(error);
-      toast({ title: 'Password update failed', description: message, variant: 'destructive' });
+    } catch (err) {
+      const message = errorMessage(err);
+      toast({
+        title: 'Échec du changement de mot de passe',
+        description: message,
+        variant: 'destructive',
+      });
       return { success: false, error: message };
     }
   };

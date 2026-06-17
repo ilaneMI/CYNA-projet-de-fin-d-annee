@@ -1,3 +1,13 @@
+/**
+ * UX-side validators only.
+ *
+ * Password hashing and the actual credential check live entirely in
+ * Supabase Auth (bcrypt server-side, JWT-signed sessions). These
+ * helpers exist to surface a same-feedback loop in the form before
+ * the request leaves the browser. They are NOT a security boundary —
+ * Supabase re-asserts both rules on the server.
+ */
+
 export type PasswordValidation = {
   isValid: boolean;
   errors: string[];
@@ -6,11 +16,11 @@ export type PasswordValidation = {
 export type PasswordRule = 'length' | 'uppercase' | 'lowercase' | 'digit' | 'special';
 
 const RULE_MESSAGE: Record<PasswordRule, string> = {
-  length: 'Password must be at least 8 characters long',
-  uppercase: 'Password must contain at least one uppercase letter',
-  lowercase: 'Password must contain at least one lowercase letter',
-  digit: 'Password must contain at least one number',
-  special: 'Password must contain at least one special character',
+  length: 'Le mot de passe doit contenir au moins 8 caractères.',
+  uppercase: 'Le mot de passe doit contenir au moins une majuscule.',
+  lowercase: 'Le mot de passe doit contenir au moins une minuscule.',
+  digit: 'Le mot de passe doit contenir au moins un chiffre.',
+  special: 'Le mot de passe doit contenir au moins un caractère spécial.',
 };
 
 const RULE_TESTERS: Record<PasswordRule, (password: string) => boolean> = {
@@ -43,19 +53,3 @@ export const validateEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
-
-/**
- * Provisional client-side SHA-256 hash. TODO: remove when Supabase Auth is wired in.
- * Password hashing must happen server-side (bcrypt/argon2) per CLAUDE.md.
- */
-export const hashPassword = async (password: string): Promise<string> => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-};
-
-export const generateSessionToken = (): string =>
-  Math.random().toString(36).substring(2) + Date.now().toString(36);

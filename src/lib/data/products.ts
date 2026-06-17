@@ -1,5 +1,65 @@
-import { demoProducts } from '@/lib/demoData';
+import { supabase } from '@/lib/supabase';
 import type { Product, ProductQuery, StockStatus } from './types';
+
+/**
+ * Flattens the normalized catalogue (products + product_images + prices +
+ * categories) back into the legacy `Product` shape consumed by every page.
+ *
+ * Key remappings:
+ * - `id` exposed = the slug, so `<Link href={`/product/${p.id}`}>` keeps
+ *   producing slug URLs without touching any page.
+ * - `category_id` exposed = the parent category's slug, same reason.
+ * - `image_url` = the lowest-`position` row in `product_images`.
+ * - `price_*` reconstituted in EUR (÷100) from the matching rows in
+ *   `prices` (monthly+flat, annual+flat, monthly+per_user).
+ * - `stock_status` decoded from the `availability` enum to the French
+ *   label the existing UI switches on.
+ * - `name` / `description` resolved against the `fr` jsonb key (en/ar/he
+ *   will be added by the i18n lot).
+ */
+
+type AvailabilityCode = 'in_stock' | 'limited' | 'out_of_stock';
+type BillingInterval = 'monthly' | 'annual';
+type PriceUnit = 'flat' | 'per_user' | 'per_device';
+
+type PriceRow = {
+  billing_interval: BillingInterval;
+  unit_type: PriceUnit;
+  unit_amount: number;
+  currency: string;
+  is_active: boolean;
+};
+
+type ImageRow = {
+  url: string;
+  position: number;
+};
+
+type ProductRow = {
+  id: string;
+  slug: string;
+  name: Record<string, string> | null;
+  description: Record<string, string> | null;
+  specs: Record<string, string> | null;
+  availability: AvailabilityCode;
+  priority: number;
+  created_at: string;
+  category: { id: string; slug: string };
+  product_images: ImageRow[];
+  prices: PriceRow[];
+};
+
+const AVAILABILITY_LABEL: Record<AvailabilityCode, StockStatus> = {
+  in_stock: 'En Stock',
+  limited: 'Limité',
+  out_of_stock: 'Rupture de Stock',
+};
+
+const AVAILABILITY_CODE: Record<StockStatus, AvailabilityCode> = {
+  'En Stock': 'in_stock',
+  'Limité': 'limited',
+  'Rupture de Stock': 'out_of_stock',
+};
 
 const STOCK_ORDER: Record<StockStatus, number> = {
   'En Stock': 0,
@@ -7,9 +67,46 @@ const STOCK_ORDER: Record<StockStatus, number> = {
   'Rupture de Stock': 2,
 };
 
-const normalize = (raw: unknown): Product[] => raw as Product[];
+const PRODUCT_SELECT = `
+  id, slug, name, description, specs, availability, priority, created_at,
+  category:categories!inner ( id, slug ),
+  product_images ( url, position ),
+  prices ( billing_interval, unit_type, unit_amount, currency, is_active )
+`;
 
-const matchesSearch = (product: Product, term: string): boolean => {
+const findPriceCents = (
+  prices: PriceRow[],
+  interval: BillingInterval,
+  unit: PriceUnit,
+): number => {
+  const match = prices.find(
+    (p) => p.is_active && p.billing_interval === interval && p.unit_type === unit,
+  );
+  return match?.unit_amount ?? 0;
+};
+
+const firstImageUrl = (images: ImageRow[]): string => {
+  if (images.length === 0) return '';
+  const sorted = [...images].sort((a, b) => a.position - b.position);
+  return sorted[0]?.url ?? '';
+};
+
+const toProduct = (row: ProductRow): Product => ({
+  id: row.slug,
+  name: row.name?.fr ?? '',
+  description: row.description?.fr ?? '',
+  price_monthly: findPriceCents(row.prices, 'monthly', 'flat') / 100,
+  price_annual: findPriceCents(row.prices, 'annual', 'flat') / 100,
+  price_per_user: findPriceCents(row.prices, 'monthly', 'per_user') / 100,
+  category_id: row.category.slug,
+  image_url: firstImageUrl(row.product_images),
+  stock_status: AVAILABILITY_LABEL[row.availability],
+  technical_specs: row.specs ?? {},
+  priority: row.priority,
+  created_at: row.created_at,
+});
+
+const matchesSearchClient = (product: Product, term: string): boolean => {
   const haystack = `${product.name} ${product.description}`.toLowerCase();
   return term
     .toLowerCase()
@@ -44,47 +141,134 @@ const compareProducts = (sort: ProductQuery['sort']) => (a: Product, b: Product)
   }
 };
 
-const matchesCategory = (product: Product, query: ProductQuery): boolean => {
-  if (query.categoryIds && query.categoryIds.length > 0) {
-    return query.categoryIds.includes(product.category_id);
-  }
-  if (query.categoryId) {
-    return product.category_id === query.categoryId;
-  }
-  return true;
-};
-
-const matchesStock = (product: Product, query: ProductQuery): boolean => {
-  if (query.stockStatuses && query.stockStatuses.length > 0) {
-    return query.stockStatuses.includes(product.stock_status);
-  }
-  if (query.stockStatus && query.stockStatus !== 'all') {
-    return product.stock_status === query.stockStatus;
-  }
-  return true;
-};
-
-const matchesPrice = (product: Product, query: ProductQuery): boolean => {
-  if (query.minPrice !== undefined && product.price_monthly < query.minPrice) return false;
-  if (query.maxPrice !== undefined && product.price_monthly > query.maxPrice) return false;
-  return true;
-};
-
 export async function getProducts(query: ProductQuery = {}): Promise<Product[]> {
-  const all = normalize(demoProducts);
-  const filtered = all.filter((product) => {
-    if (!matchesCategory(product, query)) return false;
-    if (!matchesStock(product, query)) return false;
-    if (!matchesPrice(product, query)) return false;
-    if (query.search && !matchesSearch(product, query.search)) return false;
-    return true;
-  });
-  return [...filtered].sort(compareProducts(query.sort));
+  // ---- Category filter ----------------------------------------------------
+  // The public API takes slug(s); we resolve them to UUIDs in one lookup
+  // and filter on the indexed `category_id` column. `categoryIds`
+  // (multi-select) supersedes `categoryId` when non-empty.
+  const categorySlugs =
+    query.categoryIds && query.categoryIds.length > 0
+      ? query.categoryIds
+      : query.categoryId
+        ? [query.categoryId]
+        : null;
+
+  let categoryUuids: string[] | null = null;
+  if (categorySlugs) {
+    const { data: cats, error: catErr } = await supabase
+      .from('categories')
+      .select('id, slug')
+      .in('slug', categorySlugs);
+    if (catErr) {
+      throw new Error(`Supabase getProducts (category lookup) failed: ${catErr.message}`);
+    }
+    const uuids = ((cats ?? []) as { id: string }[]).map((c) => c.id);
+    if (uuids.length === 0) return [];
+    categoryUuids = uuids;
+  }
+
+  let request = supabase.from('products').select(PRODUCT_SELECT);
+
+  if (categoryUuids) {
+    request =
+      categoryUuids.length === 1
+        ? request.eq('category_id', categoryUuids[0])
+        : request.in('category_id', categoryUuids);
+  }
+
+  // ---- Stock filter -------------------------------------------------------
+  // `stockStatuses` (multi-select) supersedes `stockStatus`. We map the FR
+  // labels back to enum codes before sending to Postgres.
+  if (query.stockStatuses && query.stockStatuses.length > 0) {
+    const codes = query.stockStatuses
+      .map((s) => AVAILABILITY_CODE[s])
+      .filter((c): c is AvailabilityCode => Boolean(c));
+    if (codes.length > 0) {
+      request = request.in('availability', codes);
+    }
+  } else if (query.stockStatus && query.stockStatus !== 'all') {
+    const code = AVAILABILITY_CODE[query.stockStatus];
+    if (code) {
+      request = request.eq('availability', code);
+    }
+  }
+
+  // ---- Search filter (Postgres FTS) --------------------------------------
+  let usedServerSearch = false;
+  if (query.search) {
+    request = request.textSearch('search_fr', query.search, {
+      type: 'plain',
+      config: 'french',
+    });
+    usedServerSearch = true;
+  }
+
+  // ---- Sort: push to Postgres where possible -----------------------------
+  // Without an explicit ORDER BY, PostgREST may return rows in arbitrary
+  // engine order and then clip the response at the server-side `max_rows`
+  // cap (1000 by default), so the JS sort below would run on a
+  // non-deterministic slice. The stock_status enum was declared
+  // in_stock < limited < out_of_stock, so `order('availability', asc)`
+  // reproduces STOCK_ORDER exactly. 'name' / 'price_asc' / 'price_desc'
+  // stay JS-sorted: name needs jsonb path support and price needs a join
+  // on the prices table — safe to defer while the catalogue stays below
+  // max_rows.
+  switch (query.sort) {
+    case 'availability':
+      request = request.order('availability', { ascending: true });
+      break;
+    case 'newest':
+      request = request.order('created_at', { ascending: false });
+      break;
+    case 'priority':
+    case 'default':
+    case undefined:
+      request = request
+        .order('priority', { ascending: false })
+        .order('availability', { ascending: true });
+      break;
+    default:
+      // 'name', 'price_asc', 'price_desc' → JS sort below (full fetched set).
+      break;
+  }
+
+  const { data, error } = await request;
+  if (error) {
+    throw new Error(`Supabase getProducts failed: ${error.message}`);
+  }
+
+  let products = ((data ?? []) as unknown as ProductRow[]).map(toProduct);
+
+  // ---- Post-fetch filters that don't fit cleanly in SQL ------------------
+  // Price range targets the monthly+flat amount which lives on a related
+  // table. Pushing this would need a denormalized column or a view; for
+  // catalogues below max_rows the JS filter is fine.
+  if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+    products = products.filter((p) => {
+      if (query.minPrice !== undefined && p.price_monthly < query.minPrice) return false;
+      if (query.maxPrice !== undefined && p.price_monthly > query.maxPrice) return false;
+      return true;
+    });
+  }
+
+  if (query.search && !usedServerSearch) {
+    const term = query.search;
+    products = products.filter((p) => matchesSearchClient(p, term));
+  }
+
+  return [...products].sort(compareProducts(query.sort));
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const all = normalize(demoProducts);
-  return all.find((product) => product.id === id) ?? null;
+  const { data, error } = await supabase
+    .from('products')
+    .select(PRODUCT_SELECT)
+    .eq('slug', id)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Supabase getProductById failed: ${error.message}`);
+  }
+  return data ? toProduct(data as unknown as ProductRow) : null;
 }
 
 export async function getTopProducts(limit = 6): Promise<Product[]> {
