@@ -1,13 +1,41 @@
-import { demoProducts } from '@/lib/demoData';
+import { supabase } from '@/lib/supabase';
 import type { Product, ProductQuery, StockStatus } from './types';
+
+type ProductRow = {
+  id: string;
+  name: string;
+  description: string;
+  price_monthly: number;
+  price_annual: number;
+  price_per_user: number;
+  category_id: string;
+  image_url: string;
+  stock_status: StockStatus;
+  technical_specs: Record<string, string> | null;
+  priority: number | null;
+  created_at: string;
+};
+
+const toProduct = (row: ProductRow): Product => ({
+  id: row.id,
+  name: row.name,
+  description: row.description,
+  price_monthly: row.price_monthly,
+  price_annual: row.price_annual,
+  price_per_user: row.price_per_user,
+  category_id: row.category_id,
+  image_url: row.image_url,
+  stock_status: row.stock_status,
+  technical_specs: row.technical_specs ?? {},
+  priority: row.priority ?? undefined,
+  created_at: row.created_at,
+});
 
 const STOCK_ORDER: Record<StockStatus, number> = {
   'En Stock': 0,
   'Limité': 1,
   'Rupture de Stock': 2,
 };
-
-const normalize = (raw: unknown): Product[] => raw as Product[];
 
 const matchesSearch = (product: Product, term: string): boolean => {
   const haystack = `${product.name} ${product.description}`.toLowerCase();
@@ -42,22 +70,47 @@ const compareProducts = (sort: ProductQuery['sort']) => (a: Product, b: Product)
   }
 };
 
+const PRODUCT_COLUMNS =
+  'id, name, description, price_monthly, price_annual, price_per_user, category_id, image_url, stock_status, technical_specs, priority, created_at';
+
 export async function getProducts(query: ProductQuery = {}): Promise<Product[]> {
-  const all = normalize(demoProducts);
-  const filtered = all.filter((product) => {
-    if (query.categoryId && product.category_id !== query.categoryId) return false;
-    if (query.stockStatus && query.stockStatus !== 'all' && product.stock_status !== query.stockStatus) {
-      return false;
-    }
-    if (query.search && !matchesSearch(product, query.search)) return false;
-    return true;
-  });
-  return [...filtered].sort(compareProducts(query.sort));
+  let request = supabase.from('products').select(PRODUCT_COLUMNS);
+
+  if (query.categoryId) {
+    request = request.eq('category_id', query.categoryId);
+  }
+  if (query.stockStatus && query.stockStatus !== 'all') {
+    request = request.eq('stock_status', query.stockStatus);
+  }
+
+  const { data, error } = await request;
+  if (error) {
+    throw new Error(`Supabase getProducts failed: ${error.message}`);
+  }
+
+  let products = (data ?? []).map(toProduct);
+
+  // Multi-token AND search on name + description. Pushing this into
+  // Postgres cleanly needs full-text or pg_trgm; staying in JS for now
+  // preserves the legacy behaviour exactly.
+  if (query.search) {
+    const term = query.search;
+    products = products.filter((product) => matchesSearch(product, term));
+  }
+
+  return [...products].sort(compareProducts(query.sort));
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const all = normalize(demoProducts);
-  return all.find((product) => product.id === id) ?? null;
+  const { data, error } = await supabase
+    .from('products')
+    .select(PRODUCT_COLUMNS)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Supabase getProductById failed: ${error.message}`);
+  }
+  return data ? toProduct(data) : null;
 }
 
 export async function getTopProducts(limit = 6): Promise<Product[]> {
