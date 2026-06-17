@@ -3,33 +3,42 @@ import type { CarouselItem } from './types';
 
 type CarouselRow = {
   id: string;
-  title: string;
-  description: string;
+  title: Record<string, string> | null;
+  subtitle: Record<string, string> | null;
   image_url: string;
-  cta_text: string | null;
+  cta_text: Record<string, string> | null;
   cta_link: string | null;
-  order_index: number;
+  display_order: number;
   created_at: string;
 };
 
+const CAROUSEL_COLUMNS =
+  'id, title, subtitle, image_url, cta_text, cta_link, display_order, created_at';
+
+/**
+ * The legacy `CarouselItem` shape used `description` for the body line and
+ * `order_index` for the sort key. The normalized schema renames them to
+ * `subtitle` and `display_order` — we remap here so the pages don't move.
+ * `id` stays the UUID (used as a React key only, never as a URL slug).
+ */
 const toCarouselItem = (row: CarouselRow): CarouselItem => ({
   id: row.id,
-  title: row.title,
-  description: row.description,
+  title: row.title?.fr ?? '',
+  description: row.subtitle?.fr ?? '',
   image_url: row.image_url,
-  cta_text: row.cta_text ?? undefined,
+  cta_text: row.cta_text?.fr,
   cta_link: row.cta_link ?? undefined,
-  order_index: row.order_index,
+  order_index: row.display_order,
   created_at: row.created_at,
 });
 
 export async function getCarouselItems(): Promise<CarouselItem[]> {
   const { data, error } = await supabase
-    .from('carousel_items')
-    .select('id, title, description, image_url, cta_text, cta_link, order_index, created_at')
-    .order('order_index', { ascending: true });
+    .from('carousel_slides')
+    .select(CAROUSEL_COLUMNS)
+    .order('display_order', { ascending: true });
   if (error) {
     throw new Error(`Supabase getCarouselItems failed: ${error.message}`);
   }
-  return (data ?? []).map(toCarouselItem);
+  return ((data ?? []) as CarouselRow[]).map(toCarouselItem);
 }

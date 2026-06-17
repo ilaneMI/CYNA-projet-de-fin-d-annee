@@ -1,35 +1,65 @@
 import { supabase } from '@/lib/supabase';
 import type { Product, ProductQuery, StockStatus } from './types';
 
-type ProductRow = {
-  id: string;
-  name: string;
-  description: string;
-  price_monthly: number;
-  price_annual: number;
-  price_per_user: number;
-  category_id: string;
-  image_url: string;
-  stock_status: StockStatus;
-  technical_specs: Record<string, string> | null;
-  priority: number | null;
-  created_at: string;
+/**
+ * Flattens the normalized catalogue (products + product_images + prices +
+ * categories) back into the legacy `Product` shape consumed by every page.
+ *
+ * Key remappings:
+ * - `id` exposed = the slug, so `<Link href={`/product/${p.id}`}>` keeps
+ *   producing slug URLs without touching any page.
+ * - `category_id` exposed = the parent category's slug, same reason.
+ * - `image_url` = the lowest-`position` row in `product_images`.
+ * - `price_*` reconstituted in EUR (÷100) from the matching rows in
+ *   `prices` (monthly+flat, annual+flat, monthly+per_user).
+ * - `stock_status` decoded from the `availability` enum to the French
+ *   label the existing UI switches on.
+ * - `name` / `description` resolved against the `fr` jsonb key (en/ar/he
+ *   will be added by the i18n lot).
+ */
+
+type AvailabilityCode = 'in_stock' | 'limited' | 'out_of_stock';
+type BillingInterval = 'monthly' | 'annual';
+type PriceUnit = 'flat' | 'per_user' | 'per_device';
+
+type PriceRow = {
+  billing_interval: BillingInterval;
+  unit_type: PriceUnit;
+  unit_amount: number;
+  currency: string;
+  is_active: boolean;
 };
 
-const toProduct = (row: ProductRow): Product => ({
-  id: row.id,
-  name: row.name,
-  description: row.description,
-  price_monthly: row.price_monthly,
-  price_annual: row.price_annual,
-  price_per_user: row.price_per_user,
-  category_id: row.category_id,
-  image_url: row.image_url,
-  stock_status: row.stock_status,
-  technical_specs: row.technical_specs ?? {},
-  priority: row.priority ?? undefined,
-  created_at: row.created_at,
-});
+type ImageRow = {
+  url: string;
+  position: number;
+};
+
+type ProductRow = {
+  id: string;
+  slug: string;
+  name: Record<string, string> | null;
+  description: Record<string, string> | null;
+  specs: Record<string, string> | null;
+  availability: AvailabilityCode;
+  priority: number;
+  created_at: string;
+  category: { id: string; slug: string };
+  product_images: ImageRow[];
+  prices: PriceRow[];
+};
+
+const AVAILABILITY_LABEL: Record<AvailabilityCode, StockStatus> = {
+  in_stock: 'En Stock',
+  limited: 'Limité',
+  out_of_stock: 'Rupture de Stock',
+};
+
+const AVAILABILITY_CODE: Record<StockStatus, AvailabilityCode> = {
+  'En Stock': 'in_stock',
+  'Limité': 'limited',
+  'Rupture de Stock': 'out_of_stock',
+};
 
 const STOCK_ORDER: Record<StockStatus, number> = {
   'En Stock': 0,
@@ -37,7 +67,46 @@ const STOCK_ORDER: Record<StockStatus, number> = {
   'Rupture de Stock': 2,
 };
 
-const matchesSearch = (product: Product, term: string): boolean => {
+const PRODUCT_SELECT = `
+  id, slug, name, description, specs, availability, priority, created_at,
+  category:categories!inner ( id, slug ),
+  product_images ( url, position ),
+  prices ( billing_interval, unit_type, unit_amount, currency, is_active )
+`;
+
+const findPriceCents = (
+  prices: PriceRow[],
+  interval: BillingInterval,
+  unit: PriceUnit,
+): number => {
+  const match = prices.find(
+    (p) => p.is_active && p.billing_interval === interval && p.unit_type === unit,
+  );
+  return match?.unit_amount ?? 0;
+};
+
+const firstImageUrl = (images: ImageRow[]): string => {
+  if (images.length === 0) return '';
+  const sorted = [...images].sort((a, b) => a.position - b.position);
+  return sorted[0]?.url ?? '';
+};
+
+const toProduct = (row: ProductRow): Product => ({
+  id: row.slug,
+  name: row.name?.fr ?? '',
+  description: row.description?.fr ?? '',
+  price_monthly: findPriceCents(row.prices, 'monthly', 'flat') / 100,
+  price_annual: findPriceCents(row.prices, 'annual', 'flat') / 100,
+  price_per_user: findPriceCents(row.prices, 'monthly', 'per_user') / 100,
+  category_id: row.category.slug,
+  image_url: firstImageUrl(row.product_images),
+  stock_status: AVAILABILITY_LABEL[row.availability],
+  technical_specs: row.specs ?? {},
+  priority: row.priority,
+  created_at: row.created_at,
+});
+
+const matchesSearchClient = (product: Product, term: string): boolean => {
   const haystack = `${product.name} ${product.description}`.toLowerCase();
   return term
     .toLowerCase()
@@ -70,17 +139,46 @@ const compareProducts = (sort: ProductQuery['sort']) => (a: Product, b: Product)
   }
 };
 
-const PRODUCT_COLUMNS =
-  'id, name, description, price_monthly, price_annual, price_per_user, category_id, image_url, stock_status, technical_specs, priority, created_at';
-
 export async function getProducts(query: ProductQuery = {}): Promise<Product[]> {
-  let request = supabase.from('products').select(PRODUCT_COLUMNS);
-
+  // Category filter: the public API takes a slug. We resolve it to a UUID
+  // in a tiny lookup and then filter on the indexed `category_id` column —
+  // simpler and more predictable than chained embedded filters.
+  let categoryUuid: string | null = null;
   if (query.categoryId) {
-    request = request.eq('category_id', query.categoryId);
+    const { data: cat, error: catErr } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('slug', query.categoryId)
+      .maybeSingle();
+    if (catErr) {
+      throw new Error(`Supabase getProducts (category lookup) failed: ${catErr.message}`);
+    }
+    if (!cat) return [];
+    categoryUuid = (cat as { id: string }).id;
   }
+
+  let request = supabase.from('products').select(PRODUCT_SELECT);
+
+  if (categoryUuid) {
+    request = request.eq('category_id', categoryUuid);
+  }
+
   if (query.stockStatus && query.stockStatus !== 'all') {
-    request = request.eq('stock_status', query.stockStatus);
+    const code = AVAILABILITY_CODE[query.stockStatus];
+    if (code) {
+      request = request.eq('availability', code);
+    }
+  }
+
+  let usedServerSearch = false;
+  if (query.search) {
+    // Postgres FTS through the stored generated tsvector — sub-100ms even
+    // with a real catalogue, per modele-donnees-CYNA.md §5.
+    request = request.textSearch('search_fr', query.search, {
+      type: 'plain',
+      config: 'french',
+    });
+    usedServerSearch = true;
   }
 
   const { data, error } = await request;
@@ -88,14 +186,14 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
     throw new Error(`Supabase getProducts failed: ${error.message}`);
   }
 
-  let products = (data ?? []).map(toProduct);
+  let products = ((data ?? []) as unknown as ProductRow[]).map(toProduct);
 
-  // Multi-token AND search on name + description. Pushing this into
-  // Postgres cleanly needs full-text or pg_trgm; staying in JS for now
-  // preserves the legacy behaviour exactly.
-  if (query.search) {
+  // FTS handles whole-token matching; the legacy multi-token AND falls
+  // back to a client-side filter so partial-word queries still narrow the
+  // result set in the same way the old stub did.
+  if (query.search && !usedServerSearch) {
     const term = query.search;
-    products = products.filter((product) => matchesSearch(product, term));
+    products = products.filter((p) => matchesSearchClient(p, term));
   }
 
   return [...products].sort(compareProducts(query.sort));
@@ -104,13 +202,13 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
 export async function getProductById(id: string): Promise<Product | null> {
   const { data, error } = await supabase
     .from('products')
-    .select(PRODUCT_COLUMNS)
-    .eq('id', id)
+    .select(PRODUCT_SELECT)
+    .eq('slug', id)
     .maybeSingle();
   if (error) {
     throw new Error(`Supabase getProductById failed: ${error.message}`);
   }
-  return data ? toProduct(data) : null;
+  return data ? toProduct(data as unknown as ProductRow) : null;
 }
 
 export async function getTopProducts(limit = 6): Promise<Product[]> {
