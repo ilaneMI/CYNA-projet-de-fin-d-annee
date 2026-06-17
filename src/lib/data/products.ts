@@ -181,6 +181,33 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
     usedServerSearch = true;
   }
 
+  // Push the supported sorts to Postgres BEFORE the request fires. Without
+  // an explicit ORDER BY, PostgREST may return rows in arbitrary engine
+  // order and then clip the response at the server-side `max_rows` cap
+  // (1000 by default on Supabase) — the JS sort below would then run on
+  // a non-deterministic 1000-row slice instead of the full filtered set.
+  // The stock_status enum was declared in_stock < limited < out_of_stock,
+  // so `order('availability', asc)` reproduces STOCK_ORDER exactly.
+  // 'name' / 'price_asc' / 'price_desc' stay JS-sorted for now: name needs
+  // `name->>fr`-style jsonb path support and price sort needs a join on
+  // the prices table — both safe to defer while the catalogue stays well
+  // below max_rows.
+  switch (query.sort) {
+    case 'availability':
+      request = request.order('availability', { ascending: true });
+      break;
+    case 'priority':
+    case 'default':
+    case undefined:
+      request = request
+        .order('priority', { ascending: false })
+        .order('availability', { ascending: true });
+      break;
+    default:
+      // 'name', 'price_asc', 'price_desc' → JS sort below (full fetched set).
+      break;
+  }
+
   const { data, error } = await request;
   if (error) {
     throw new Error(`Supabase getProducts failed: ${error.message}`);
@@ -196,6 +223,8 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
     products = products.filter((p) => matchesSearchClient(p, term));
   }
 
+  // Final JS sort. Idempotent for the cases already ordered by Postgres
+  // (default / priority / availability) and authoritative for the others.
   return [...products].sort(compareProducts(query.sort));
 }
 
