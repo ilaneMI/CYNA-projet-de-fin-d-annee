@@ -56,6 +56,17 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   }, [cartItems, hydrated]);
 
   const addToCart: CartContextValue['addToCart'] = (product, subscriptionDuration = 'monthly', quantity = 1) => {
+    // Defensive guard: out-of-stock products must never reach the cart,
+    // even if a UI button was bypassed (URL action, stale state, future
+    // route handler). 'Limité' still allows purchase per business rules.
+    if (product.stock_status === 'Rupture de Stock') {
+      toast({
+        title: 'Produit indisponible',
+        description: `${product.name} est actuellement en rupture de stock.`,
+        variant: 'destructive',
+      });
+      return;
+    }
     setCartItems((prev) => {
       const existingIndex = prev.findIndex(
         (item) => item.id === product.id && item.subscriptionDuration === subscriptionDuration,
