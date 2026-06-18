@@ -23,10 +23,6 @@ export type BillingAddress = {
 
 export type BillingErrors = Partial<Record<keyof BillingAddress, string>>;
 
-export type CheckoutOrder = {
-  orderNumber: string;
-  /** Total displayed at confirmation. FIXME-SECURITY: indicative only. */
-  total: number;
-  email: string;
-  createdAt: string;
-};
+// CheckoutOrder removed at Lot D: the in-app Step4Confirmation page no
+// longer exists. Confirmation is rendered by /checkout/success after the
+// Stripe redirect, reading the order directly from public.orders.
