@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { safeRedirectTarget } from '@/features/auth/redirect';
 import PersonalInfoSection from '@/features/account/PersonalInfoSection';
 import AddressBookSection from '@/features/account/AddressBookSection';
 import PaymentMethodsSection from '@/features/account/PaymentMethodsSection';
+import TwoFactorSection from '@/features/account/TwoFactorSection';
 
 const MY_ACCOUNT_PATH = '/my-account';
 
@@ -28,7 +29,12 @@ const AccountSkeleton = () => (
 
 export default function MyAccountView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated, loading, currentUser, logout } = useAuth();
+
+  // The /admin middleware redirects here with ?reason=mfa_required when an
+  // admin without a verified TOTP factor tries to enter the back-office.
+  const mfaRequired = searchParams.get('reason') === 'mfa_required';
 
   // FIXME-SECURITY: client-side guard, UX only. The real authorisation
   // check will live in the Supabase middleware that validates the JWT in
@@ -45,6 +51,15 @@ export default function MyAccountView() {
     }
   }, [loading, isAuthenticated, router]);
 
+  // Smooth-scroll the user to the 2FA section when the middleware sent
+  // them here for enrollment. Runs after auth has settled so the section
+  // is actually mounted at the time of the scroll.
+  useEffect(() => {
+    if (!mfaRequired || loading || !isAuthenticated) return;
+    const target = document.getElementById('two-factor');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [mfaRequired, loading, isAuthenticated]);
+
   const handleLogout = async () => {
     await logout();
     router.replace('/');
@@ -56,6 +71,27 @@ export default function MyAccountView() {
 
   return (
     <div className="space-y-10">
+      {mfaRequired && (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/50 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+        >
+          <p className="mb-1 font-medium leading-none tracking-tight">
+            Authentification à deux facteurs requise
+          </p>
+          <p className="leading-relaxed">
+            L’accès à l’administration nécessite la 2FA. Activez-la dans la section{' '}
+            <Link href="#two-factor" className="font-medium underline-offset-4 hover:underline">
+              Authentification à deux facteurs
+            </Link>{' '}
+            ci-dessous, puis revenez sur{' '}
+            <Link href="/admin" className="font-medium underline-offset-4 hover:underline">
+              /admin
+            </Link>
+            .
+          </p>
+        </div>
+      )}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Mon compte</h1>
@@ -98,6 +134,14 @@ export default function MyAccountView() {
           </li>
           <li>
             <Link
+              href="#two-factor"
+              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              Sécurité / 2FA
+            </Link>
+          </li>
+          <li>
+            <Link
               href="/orders"
               className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
@@ -110,6 +154,7 @@ export default function MyAccountView() {
       <PersonalInfoSection />
       <AddressBookSection />
       <PaymentMethodsSection />
+      <TwoFactorSection />
     </div>
   );
 }
