@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
+import { useToast } from '@/components/ui/use-toast';
+import { placeOrder } from '@/lib/data/orders';
 import { emptyBilling } from './validation';
 import StepIndicator from './StepIndicator';
 import Step1Authentication from './Step1Authentication';
@@ -12,7 +14,8 @@ import Step3Payment from './Step3Payment';
 import Step4Confirmation from './Step4Confirmation';
 import type { BillingAddress, CheckoutOrder, CheckoutStep } from './types';
 
-const generateOrderNumber = (): string => `ORD-${Date.now().toString(36).toUpperCase()}`;
+/** Fallback order number for the guest demo path (no DB persist). */
+const generateLocalOrderNumber = (): string => `ORD-${Date.now().toString(36).toUpperCase()}`;
 
 const splitFullName = (fullName?: string): { firstName: string; lastName: string } => {
   if (!fullName) return { firstName: '', lastName: '' };
@@ -31,8 +34,10 @@ const FlowSkeleton = () => (
 
 export default function CheckoutFlow() {
   const router = useRouter();
-  const { cartItems, hydrated, getCartTotal, clearCart } = useCart();
+  const { cartItems, hydrated, getCartTotal, getItemPrice, clearCart } = useCart();
   const { isAuthenticated, currentUser } = useAuth();
+  const { toast } = useToast();
+  const [submittingOrder, setSubmittingOrder] = useState(false);
 
   const [currentStep, setCurrentStep] = useState<CheckoutStep>(1);
   const [billing, setBilling] = useState<BillingAddress>(() => emptyBilling());
@@ -84,29 +89,67 @@ export default function CheckoutFlow() {
     setCurrentStep(3);
   };
 
-  // FIXME-SECURITY + TODO(supabase): order persistence lives in localStorage
-  // for the demo. When Supabase lands, an Edge Function will receive
-  // {productIds, quantities, stripeSessionId}, recompute the amount against
-  // the catalogue, and create the order row server-side with RLS — no
-  // client-supplied amount, no client-supplied user id.
-  const handlePaymentConfirmed = () => {
+  // Persistence path:
+  //   - Authenticated → place_order() RPC writes the order + items atomically
+  //     and forces user_id = auth.uid() server-side. Status defaults to
+  //     'paid' because the real payment is still a UI placeholder; at Lot D
+  //     this handler will hand off to Stripe Checkout and the Stripe webhook
+  //     will create/update the order on `checkout.session.completed`, not
+  //     this click.
+  //   - Guest → no DB persist. The order number is generated client-side so
+  //     the confirmation screen still renders, but it will not appear in
+  //     /orders. Guest checkout will be re-evaluated at Lot D (Stripe needs
+  //     a customer; we may force account creation at that point).
+  const handlePaymentConfirmed = async () => {
+    if (submittingOrder) return;
     const total = getCartTotal();
+    const createdAt = new Date().toISOString();
+    let orderNumber = generateLocalOrderNumber();
+
+    if (isAuthenticated && currentUser) {
+      setSubmittingOrder(true);
+      try {
+        const result = await placeOrder({
+          status: 'paid',
+          email: billing.email,
+          billing: {
+            first_name: billing.firstName,
+            last_name: billing.lastName,
+            line1: billing.address1,
+            line2: billing.address2,
+            city: billing.city,
+            region: billing.region,
+            postal_code: billing.postalCode,
+            country: billing.country,
+            phone: billing.phone,
+          },
+          items: cartItems.map((item) => ({
+            productSlug: item.id,
+            name: item.name,
+            subscriptionDuration: item.subscriptionDuration,
+            unitPriceEur: getItemPrice(item),
+            quantity: item.quantity,
+          })),
+        });
+        orderNumber = result.orderNumber;
+      } catch (err) {
+        toast({
+          title: "Échec de l'enregistrement de la commande",
+          description: err instanceof Error ? err.message : 'Erreur inconnue',
+          variant: 'destructive',
+        });
+        setSubmittingOrder(false);
+        return;
+      }
+      setSubmittingOrder(false);
+    }
+
     const placedOrder: CheckoutOrder = {
-      orderNumber: generateOrderNumber(),
+      orderNumber,
       total,
       email: billing.email,
-      createdAt: new Date().toISOString(),
+      createdAt,
     };
-
-    try {
-      const stored = JSON.parse(localStorage.getItem('orders') ?? '[]') as CheckoutOrder[];
-      stored.push(placedOrder);
-      localStorage.setItem('orders', JSON.stringify(stored));
-    } catch {
-      // localStorage may be unavailable (private mode, quota); the order
-      // still shows on the confirmation screen, persistence will move to
-      // Supabase soon anyway.
-    }
 
     setOrder(placedOrder);
     clearCart();
@@ -136,7 +179,7 @@ export default function CheckoutFlow() {
           <Step3Payment
             indicativeTotal={getCartTotal()}
             onBack={() => setCurrentStep(2)}
-            onConfirmed={handlePaymentConfirmed}
+            onConfirmed={() => void handlePaymentConfirmed()}
           />
         )}
         {currentStep === 4 && order && <Step4Confirmation order={order} />}

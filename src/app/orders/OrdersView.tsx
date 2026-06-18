@@ -10,9 +10,9 @@ import { safeRedirectTarget } from '@/features/auth/redirect';
 import OrderFilters from '@/features/orders/OrderFilters';
 import OrdersGroupedList from '@/features/orders/OrdersGroupedList';
 import { availableYears, filterOrders } from '@/features/orders/filtering';
-import { listOrders } from '@/features/orders/storage';
+import { useToast } from '@/components/ui/use-toast';
 import type { Order, OrderFilters as OrderFiltersValue } from '@/features/orders/types';
-import { getCategories, type Category } from '@/lib/data';
+import { getCategories, listOrders, type Category } from '@/lib/data';
 
 const ORDERS_PATH = '/orders';
 
@@ -35,6 +35,7 @@ const OrdersSkeleton = () => (
 export default function OrdersView() {
   const router = useRouter();
   const { isAuthenticated, loading, currentUser } = useAuth();
+  const { toast } = useToast();
   const [hydrated, setHydrated] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -54,9 +55,27 @@ export default function OrdersView() {
 
   useEffect(() => {
     if (loading || !isAuthenticated || !currentUser) return;
-    setOrders(listOrders(currentUser.email));
-    setHydrated(true);
-  }, [loading, isAuthenticated, currentUser]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await listOrders(currentUser.id);
+        if (cancelled) return;
+        setOrders(rows);
+      } catch (err) {
+        if (cancelled) return;
+        toast({
+          title: 'Impossible de charger vos commandes',
+          description: err instanceof Error ? err.message : 'Erreur inconnue',
+          variant: 'destructive',
+        });
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, isAuthenticated, currentUser, toast]);
 
   useEffect(() => {
     let cancelled = false;

@@ -24,3 +24,6 @@ export {
   deleteAddress,
   setDefaultAddress,
 } from './addresses';
+
+export { listOrders, placeOrder } from './orders';
+export type { PlaceOrderInput } from './orders';
