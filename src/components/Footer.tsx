@@ -42,18 +42,18 @@ export default function Footer() {
             <span className="text-lg font-semibold text-foreground">Légal</span>
             <ul className="mt-4 space-y-2">
               <li>
-                <Link href="/privacy" className="text-muted-foreground hover:text-primary transition-colors duration-300">
-                  Politique de Confidentialité
+                <Link href="/mentions-legales" className="text-muted-foreground hover:text-primary transition-colors duration-300">
+                  Mentions légales
                 </Link>
               </li>
               <li>
-                <Link href="/terms" className="text-muted-foreground hover:text-primary transition-colors duration-300">
-                  Conditions de Service
+                <Link href="/confidentialite" className="text-muted-foreground hover:text-primary transition-colors duration-300">
+                  Politique de confidentialité
                 </Link>
               </li>
               <li>
-                <Link href="/tools" className="text-muted-foreground hover:text-primary transition-colors duration-300">
-                  Contactez-nous
+                <Link href="/cgu" className="text-muted-foreground hover:text-primary transition-colors duration-300">
+                  Conditions générales
                 </Link>
               </li>
             </ul>
