@@ -3,6 +3,7 @@ import './globals.css';
 import { Providers } from '@/components/providers';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import CookieConsent from '@/components/CookieConsent';
 
 export const metadata: Metadata = {
   title: 'Cyna — Solutions de Sécurité Entreprise',
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Header />
           <main className="flex-1">{children}</main>
           <Footer />
+          <CookieConsent />
         </Providers>
       </body>
     </html>
