@@ -82,7 +82,8 @@ export default function ProductPurchase({ product }: Props) {
           size="lg"
           onClick={handleAddToCart}
           disabled={isOutOfStock}
-          aria-pressed={alreadyInCart}
+          aria-disabled={isOutOfStock}
+          aria-pressed={!isOutOfStock && alreadyInCart}
           className="w-full py-6 text-lg shadow-lg"
         >
           <ShoppingCart aria-hidden="true" className="mr-2 h-5 w-5" />
