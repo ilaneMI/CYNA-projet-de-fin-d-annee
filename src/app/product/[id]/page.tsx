@@ -16,19 +16,23 @@ import ProductPurchase from './ProductPurchase';
 type Params = { id: string };
 
 /**
- * Pre-render one route per known product id. With the demoData stub that is
- * a closed set of ~9 ids. When Supabase lands, products will be created and
- * updated by admins — flip `dynamicParams` to `true` and add an ISR
- * `revalidate` so new products are reachable without a redeploy.
+ * Pre-render one route per product known at build time and let admins add
+ * new ones without a redeploy. Failure to reach Supabase at build time
+ * degrades gracefully to an empty list so the build still finishes; the
+ * missing routes are then generated on demand and cached by ISR.
  */
 export async function generateStaticParams(): Promise<Params[]> {
-  const products = await getProducts();
-  return products.map((product) => ({ id: product.id }));
+  try {
+    const products = await getProducts();
+    return products.map((product) => ({ id: product.id }));
+  } catch (err) {
+    console.warn('[product/[id]] generateStaticParams: Supabase unreachable, deferring all routes to ISR.', err);
+    return [];
+  }
 }
 
-// TODO(supabase): flip to `true` and add `revalidate` once products become
-// editable through the admin. Until then any non-pre-rendered id returns 404.
-export const dynamicParams = false;
+export const dynamicParams = true;
+export const revalidate = 3600;
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const product = await getProductById(params.id);
