@@ -56,7 +56,16 @@ export default function CookieConsent() {
     <div
       role="region"
       aria-labelledby="cookie-consent-title"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card/95 shadow-2xl backdrop-blur-sm"
+      // Visibility-critical choices:
+      // - z-50 ties with the sticky Header, but the banner is later in the
+      //   DOM (after Footer) so it paints on top. Toasts at z-[100] still win.
+      // - bg-secondary is L=17.5% in this dark theme, vs --background L=4.9%
+      //   and --card L=6.9%; the previous bg-card/95 was visually identical
+      //   to the page background (~2% delta) and made the whole banner
+      //   blend into the Footer/page. bg-secondary gives clear contrast.
+      // - border-t-2 border-primary/40 picks up the brand purple as a top
+      //   accent — visible cue without needing an arbitrary upward shadow.
+      className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-primary/40 bg-secondary text-secondary-foreground"
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5 lg:px-8">
         <div className="flex-1">
@@ -79,7 +88,7 @@ export default function CookieConsent() {
           <button
             type="button"
             onClick={() => decide('rejected')}
-            className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-card/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             Tout refuser
           </button>
