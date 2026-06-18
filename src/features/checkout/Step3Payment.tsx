@@ -29,14 +29,10 @@ export default function Step3Payment({ indicativeTotal, onBack, onConfirmed }: P
   const [method, setMethod] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);
 
-  // FIXME-SECURITY + TODO(stripe): this handler must redirect to a Stripe
-  // Checkout session created by /api/checkout on the server (which receives
-  // only product ids + quantities, recomputes the price, calls
-  // stripe.checkout.sessions.create and returns the URL). No card data, no
-  // amount, no order is ever placed from the client.
-  //
-  // Until then we just simulate latency and advance to confirmation so the
-  // tunnel is walkable end-to-end in the demo.
+  // The parent CheckoutFlow does the real work via onConfirmed(): POST
+  // /api/checkout/session → window.location to the hosted Stripe Checkout.
+  // This handler keeps a short simulated wait so the spinner shows before
+  // the navigation begins (the actual API round-trip is fast in dev).
   const handleConfirm = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setProcessing(true);
@@ -46,19 +42,14 @@ export default function Step3Payment({ indicativeTotal, onBack, onConfirmed }: P
   };
 
   return (
-    <form
-      onSubmit={handleConfirm}
-      className="space-y-6"
-      aria-labelledby="step-3-heading"
-      data-stripe="checkout-placeholder"
-    >
+    <form onSubmit={handleConfirm} className="space-y-6" aria-labelledby="step-3-heading">
       <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
         <h2 id="step-3-heading" className="mb-1 text-lg font-semibold text-foreground">
           Méthode de paiement
         </h2>
         <p className="mb-6 text-sm text-muted-foreground">
-          Choisissez un mode de paiement. Le traitement sera réalisé par notre prestataire
-          certifié&nbsp;PCI-DSS.
+          Le paiement est traité par Stripe, certifié PCI-DSS. Aucune donnée bancaire ne
+          transite par nos serveurs.
         </p>
 
         <fieldset className="mb-6">
@@ -88,25 +79,13 @@ export default function Step3Payment({ indicativeTotal, onBack, onConfirmed }: P
           </div>
         </fieldset>
 
-        <div
-          role="region"
-          aria-label="Tunnel de paiement (placeholder)"
-          className="space-y-4 rounded-lg border-2 border-dashed border-border bg-secondary/30 p-6"
-        >
-          <div className="flex items-start gap-3">
-            <ShieldAlert aria-hidden="true" className="mt-1 h-5 w-5 flex-shrink-0 text-primary" />
-            <div className="text-sm">
-              <p className="font-semibold text-foreground">
-                {method === 'card'
-                  ? 'Stripe Elements montera ici le formulaire de carte.'
-                  : 'PayPal redirigera ici vers son tunnel de paiement.'}
-              </p>
-              <p className="mt-1 text-muted-foreground">
-                Aucune donnée carte ne transitera jamais par nos serveurs (règle PCI-DSS). Le
-                tunnel sera branché à l&apos;étape suivante de la migration.
-              </p>
-            </div>
-          </div>
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-secondary/30 p-4">
+          <ShieldAlert aria-hidden="true" className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
+          <p className="text-sm text-muted-foreground">
+            En cliquant « Payer avec Stripe », vous serez redirigé vers la page de paiement
+            sécurisée Stripe pour saisir votre carte. Les moyens de paiement proposés
+            dépendent de la configuration du compte Stripe.
+          </p>
         </div>
 
         <div className="mt-6 flex items-center justify-between border-t border-border pt-6">
@@ -116,8 +95,8 @@ export default function Step3Payment({ indicativeTotal, onBack, onConfirmed }: P
           </span>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Montant affiché à titre indicatif. Le total définitif sera recalculé et validé côté
-          serveur au branchement Stripe (FIXME-SECURITY).
+          Montant affiché à titre indicatif. Le total définitif est recalculé côté serveur à
+          partir des prix Stripe lors de la création de la Checkout Session.
         </p>
       </div>
 
@@ -133,9 +112,12 @@ export default function Step3Payment({ indicativeTotal, onBack, onConfirmed }: P
           Retour
         </Button>
         <Button type="submit" size="lg" disabled={processing} className="sm:flex-1">
-          {processing ? 'Traitement…' : 'Confirmer le paiement'}
+          {processing ? 'Redirection…' : 'Payer avec Stripe'}
         </Button>
       </div>
+      <p className="text-center text-xs text-muted-foreground">
+        Vous serez redirigé vers la page de paiement sécurisée Stripe.
+      </p>
     </form>
   );
 }
