@@ -20,6 +20,9 @@ export type Address = {
   postalCode: string;
   country: string;
   phone: string;
+  /** Default shipping/billing pick. Exactly one per user, enforced in DB. */
+  isDefault: boolean;
 };
 
-export type AddressErrors = Partial<Record<keyof Address, string>>;
+/** Form-level error map — excludes the non-input `isDefault` flag. */
+export type AddressErrors = Partial<Record<Exclude<keyof Address, 'isDefault'>, string>>;

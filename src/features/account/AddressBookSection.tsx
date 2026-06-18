@@ -1,14 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { MapPin, Pencil, Plus, Trash2 } from 'lucide-react';
+import { MapPin, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  createAddress,
+  deleteAddress as deleteAddressInDb,
+  listAddresses,
+  setDefaultAddress,
+  updateAddress,
+} from '@/lib/data/addresses';
 import type { Address, AddressErrors } from './types';
-import { deleteAddress, emptyAddress, listAddresses, upsertAddress } from './storage';
 
-type FieldName = keyof Omit<Address, 'id'>;
+type FieldName = keyof Omit<Address, 'id' | 'isDefault'>;
 
 type FieldSpec = {
   name: FieldName;
@@ -59,6 +65,25 @@ const validateAddress = (address: Address): AddressErrors => {
 
 const hasErrors = (errors: AddressErrors): boolean => Object.values(errors).some(Boolean);
 
+/**
+ * Local draft factory — addresses created in the DB get a server-side UUID,
+ * so the draft only needs a placeholder id for the form-edit lifecycle.
+ */
+const emptyDraft = (): Address => ({
+  id: '',
+  label: '',
+  firstName: '',
+  lastName: '',
+  address1: '',
+  address2: '',
+  city: '',
+  region: '',
+  postalCode: '',
+  country: '',
+  phone: '',
+  isDefault: false,
+});
+
 export default function AddressBookSection() {
   const { currentUser } = useAuth();
   const { toast } = useToast();
@@ -67,12 +92,31 @@ export default function AddressBookSection() {
   const [draft, setDraft] = useState<Address | null>(null);
   const [touched, setTouched] = useState<Partial<Record<FieldName, boolean>>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!currentUser) return;
-    setAddresses(listAddresses(currentUser.id));
-    setHydrated(true);
-  }, [currentUser]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await listAddresses(currentUser.id);
+        if (cancelled) return;
+        setAddresses(rows);
+      } catch (err) {
+        if (cancelled) return;
+        toast({
+          title: 'Impossible de charger vos adresses',
+          description: err instanceof Error ? err.message : 'Erreur inconnue',
+          variant: 'destructive',
+        });
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, toast]);
 
   const errors = useMemo<AddressErrors>(
     () => (draft ? validateAddress(draft) : {}),
@@ -80,7 +124,7 @@ export default function AddressBookSection() {
   );
 
   const handleStartCreate = () => {
-    setDraft(emptyAddress());
+    setDraft(emptyDraft());
     setTouched({});
     setSubmitted(false);
   };
@@ -105,27 +149,90 @@ export default function AddressBookSection() {
     setTouched((prev) => ({ ...prev, [name]: true }));
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!currentUser || !draft) return;
     setSubmitted(true);
     if (hasErrors(errors)) return;
-    const next = upsertAddress(currentUser.id, draft);
-    setAddresses(next);
-    setDraft(null);
-    setTouched({});
-    toast({
-      title: 'Adresse enregistrée',
-      description: `L'étiquette « ${draft.label} » a été enregistrée.`,
-    });
+    setBusy(true);
+    try {
+      const payload = {
+        label: draft.label,
+        firstName: draft.firstName,
+        lastName: draft.lastName,
+        address1: draft.address1,
+        address2: draft.address2,
+        city: draft.city,
+        region: draft.region,
+        postalCode: draft.postalCode,
+        country: draft.country,
+        phone: draft.phone,
+      };
+      const saved = draft.id
+        ? await updateAddress(currentUser.id, draft.id, payload)
+        : await createAddress(currentUser.id, payload);
+      const next = draft.id
+        ? addresses.map((a) => (a.id === saved.id ? saved : a))
+        : [...addresses, saved];
+      setAddresses(next);
+      setDraft(null);
+      setTouched({});
+      toast({
+        title: 'Adresse enregistrée',
+        description: `L'étiquette « ${saved.label} » a été enregistrée.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Échec de l'enregistrement",
+        description: err instanceof Error ? err.message : 'Erreur inconnue',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleDelete = (address: Address) => {
+  const handleDelete = async (address: Address) => {
     if (!currentUser) return;
     if (!window.confirm(`Supprimer l'adresse « ${address.label} » ?`)) return;
-    const next = deleteAddress(currentUser.id, address.id);
-    setAddresses(next);
-    toast({ title: 'Adresse supprimée', description: address.label });
+    setBusy(true);
+    try {
+      await deleteAddressInDb(currentUser.id, address.id);
+      setAddresses((prev) => prev.filter((a) => a.id !== address.id));
+      toast({ title: 'Adresse supprimée', description: address.label });
+    } catch (err) {
+      toast({
+        title: 'Échec de la suppression',
+        description: err instanceof Error ? err.message : 'Erreur inconnue',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSetDefault = async (address: Address) => {
+    if (!currentUser || address.isDefault) return;
+    setBusy(true);
+    try {
+      await setDefaultAddress(currentUser.id, address.id);
+      // The DB trigger flipped the other rows; mirror locally without a refetch.
+      setAddresses((prev) =>
+        prev.map((a) => ({ ...a, isDefault: a.id === address.id })),
+      );
+      toast({
+        title: 'Adresse par défaut mise à jour',
+        description: `« ${address.label} » est maintenant l'adresse par défaut.`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Échec de la mise à jour',
+        description: err instanceof Error ? err.message : 'Erreur inconnue',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const summaryErrors = submitted
@@ -144,7 +251,7 @@ export default function AddressBookSection() {
           </p>
         </div>
         {!draft && (
-          <Button type="button" onClick={handleStartCreate} aria-controls="address-form">
+          <Button type="button" onClick={handleStartCreate} aria-controls="address-form" disabled={busy}>
             <Plus aria-hidden="true" className="mr-2 h-4 w-4" />
             Ajouter une adresse
           </Button>
@@ -172,7 +279,15 @@ export default function AddressBookSection() {
               className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between"
             >
               <div>
-                <p className="mb-1 text-sm font-semibold text-foreground">{address.label}</p>
+                <p className="mb-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+                  {address.label}
+                  {address.isDefault && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                      <Star aria-hidden="true" className="h-3 w-3" />
+                      Par défaut
+                    </span>
+                  )}
+                </p>
                 <p className="text-sm text-muted-foreground">
                   {address.firstName} {address.lastName}
                   <br />
@@ -184,13 +299,27 @@ export default function AddressBookSection() {
                   {address.country} · {address.phone}
                 </p>
               </div>
-              <div className="flex gap-2 self-end sm:self-start">
+              <div className="flex flex-wrap gap-2 self-end sm:self-start">
+                {!address.isDefault && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleSetDefault(address)}
+                    aria-label={`Définir l'adresse ${address.label} comme adresse par défaut`}
+                    disabled={busy}
+                  >
+                    <Star aria-hidden="true" className="mr-1 h-4 w-4" />
+                    Définir par défaut
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => handleStartEdit(address)}
                   aria-label={`Modifier l'adresse ${address.label}`}
+                  disabled={busy}
                 >
                   <Pencil aria-hidden="true" className="mr-1 h-4 w-4" />
                   Modifier
@@ -199,8 +328,9 @@ export default function AddressBookSection() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => handleDelete(address)}
+                  onClick={() => void handleDelete(address)}
                   aria-label={`Supprimer l'adresse ${address.label}`}
+                  disabled={busy}
                   className="border-destructive/50 text-destructive hover:bg-destructive/10"
                 >
                   <Trash2 aria-hidden="true" className="mr-1 h-4 w-4" />
@@ -215,13 +345,13 @@ export default function AddressBookSection() {
       {draft && (
         <form
           id="address-form"
-          onSubmit={handleSubmit}
+          onSubmit={(e) => void handleSubmit(e)}
           noValidate
           aria-label="Formulaire d'adresse"
           className="rounded-lg border border-border bg-card p-6 shadow-sm"
         >
           <h3 className="mb-4 text-lg font-semibold text-foreground">
-            {addresses.some((entry) => entry.id === draft.id) ? 'Modifier l’adresse' : 'Nouvelle adresse'}
+            {draft.id ? 'Modifier l’adresse' : 'Nouvelle adresse'}
           </h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {FIELDS.map((field) => {
@@ -276,11 +406,11 @@ export default function AddressBookSection() {
           )}
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Button type="button" variant="outline" onClick={handleCancel} className="sm:flex-1">
+            <Button type="button" variant="outline" onClick={handleCancel} className="sm:flex-1" disabled={busy}>
               Annuler
             </Button>
-            <Button type="submit" className="sm:flex-1">
-              Enregistrer
+            <Button type="submit" className="sm:flex-1" disabled={busy}>
+              {busy ? 'Enregistrement…' : 'Enregistrer'}
             </Button>
           </div>
         </form>

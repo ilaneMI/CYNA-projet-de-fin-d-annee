@@ -16,3 +16,11 @@ export {
   getProductsByCategory,
   getTopProducts,
 } from './products';
+
+export {
+  listAddresses,
+  createAddress,
+  updateAddress,
+  deleteAddress,
+  setDefaultAddress,
+} from './addresses';
