@@ -22,6 +22,14 @@ import { useToast } from '@/components/ui/use-toast';
  * Successful verify upgrades the session JWT to AAL2 and the browser
  * supabase client rotates the cookie automatically; the next /admin
  * request sails through.
+ *
+ * Navigation after step-up is a HARD reload (window.location.assign), not
+ * router.replace. A soft App Router navigation races with the cookie write
+ * triggered by the auth-state change: the middleware sometimes still sees
+ * the old aal1 cookie on the next request and bounces us back here, which
+ * re-mounts the component, re-reads aal2 client-side, soft-navigates again
+ * — silent loop. A full reload forces the browser to send the freshly
+ * written cookie and the middleware re-evaluates against it.
  */
 
 type Stage = 'loading' | 'ready' | 'no_factor' | 'busy';
@@ -64,8 +72,9 @@ export default function VerifyView() {
     void (async () => {
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (aal?.currentLevel === 'aal2') {
-        // Already stepped up — middleware will accept us on /admin.
-        router.replace(target);
+        // Already stepped up — hard reload so the middleware sees the
+        // current aal2 cookie on the next request (see file header).
+        window.location.assign(target);
         return;
       }
       const { data: factors } = await supabase.auth.mfa.listFactors();
@@ -113,7 +122,19 @@ export default function VerifyView() {
       title: 'Vérification réussie',
       description: "Accès à l'administration accordé.",
     });
-    router.replace(target);
+    // Best-effort: nudge the SDK to flush the freshly-rotated tokens to
+    // cookies before we navigate. mfa.verify already rotates the JWT to
+    // aal2 and the @supabase/ssr cookie writer fires on the auth event,
+    // so this is belt-and-braces — we ignore any error and proceed.
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      /* refresh failed, fall through to navigation */
+    }
+    // Hard reload so the middleware re-evaluates with the aal2 cookie
+    // (see file header). The page is about to unload — leave `stage`
+    // on 'busy' so the form stays disabled in the meantime.
+    window.location.assign(target);
   };
 
   const handleLogout = async () => {
