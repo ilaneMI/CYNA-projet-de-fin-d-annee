@@ -5,7 +5,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/AuthContext';
 import { useCart, type CartItem, type SubscriptionDuration } from '@/context/CartContext';
 
@@ -204,11 +203,10 @@ export default function CartView() {
     clearCart,
   } = useCart();
   const { isAuthenticated } = useAuth();
-  const { toast } = useToast();
 
-  // FIXME-SECURITY: this total is purely indicative. When Stripe Checkout
-  // lands, the real amount MUST be re-computed and validated server-side from
-  // the product catalogue; never trust a price coming from the client.
+  // Display only. The authoritative amount is recomputed server-side in
+  // /api/checkout/session from the product catalogue; never trust a price
+  // coming from the client.
   const displayTotal = useMemo(() => getCartTotal(), [getCartTotal]);
 
   if (!hydrated) {
@@ -218,16 +216,6 @@ export default function CartView() {
   if (cartItems.length === 0) {
     return <EmptyCart />;
   }
-
-  const handleCheckout = () => {
-    // TODO(stripe): kick off Stripe Checkout session (server route /api/checkout)
-    // and redirect to Stripe-hosted page. For now it's a placeholder so the
-    // page is usable end-to-end in the demo.
-    toast({
-      title: 'Paiement à venir',
-      description: 'Le tunnel Stripe sera branché à la prochaine étape.',
-    });
-  };
 
   return (
     <PageShell>
@@ -306,15 +294,11 @@ export default function CartView() {
               </div>
             )}
 
-            <Button
-              type="button"
-              size="lg"
-              onClick={handleCheckout}
-              className="mb-3 w-full"
-              data-stripe="checkout-placeholder"
-            >
-              Passer au paiement
-            </Button>
+            <Link href="/checkout" className="block">
+              <Button type="button" size="lg" className="mb-3 w-full">
+                Passer au paiement
+              </Button>
+            </Link>
             <Link href="/catalogue">
               <Button variant="outline" size="lg" className="w-full">
                 Continuer mes achats
