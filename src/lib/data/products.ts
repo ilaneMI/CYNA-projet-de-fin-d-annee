@@ -43,6 +43,7 @@ type ProductRow = {
   specs: Record<string, string> | null;
   availability: AvailabilityCode;
   priority: number;
+  is_active: boolean;
   created_at: string;
   category: { id: string; slug: string };
   product_images: ImageRow[];
@@ -68,7 +69,7 @@ const STOCK_ORDER: Record<StockStatus, number> = {
 };
 
 const PRODUCT_SELECT = `
-  id, slug, name, description, specs, availability, priority, created_at,
+  id, slug, name, description, specs, availability, priority, is_active, created_at,
   category:categories!inner ( id, slug ),
   product_images ( url, position ),
   prices ( billing_interval, unit_type, unit_amount, currency, is_active )
@@ -93,6 +94,7 @@ const firstImageUrl = (images: ImageRow[]): string => {
 
 const toProduct = (row: ProductRow): Product => ({
   id: row.slug,
+  pk_id: row.id,
   name: row.name?.fr ?? '',
   description: row.description?.fr ?? '',
   price_monthly: findPriceCents(row.prices, 'monthly', 'flat') / 100,
@@ -103,6 +105,7 @@ const toProduct = (row: ProductRow): Product => ({
   stock_status: AVAILABILITY_LABEL[row.availability],
   technical_specs: row.specs ?? {},
   priority: row.priority,
+  is_active: row.is_active,
   created_at: row.created_at,
 });
 
@@ -168,6 +171,13 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
   }
 
   let request = supabase.from('products').select(PRODUCT_SELECT);
+
+  // Soft-delete: hide is_active=false unless the caller is admin and asked
+  // for the full set. Admins pass `includeInactive: true` from
+  // /admin/ProductsAdminSection so they can re-activate / hard-delete.
+  if (!query.includeInactive) {
+    request = request.eq('is_active', true);
+  }
 
   if (categoryUuids) {
     request =
@@ -259,12 +269,15 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
   return [...products].sort(compareProducts(query.sort));
 }
 
-export async function getProductById(id: string): Promise<Product | null> {
-  const { data, error } = await supabase
-    .from('products')
-    .select(PRODUCT_SELECT)
-    .eq('slug', id)
-    .maybeSingle();
+export async function getProductById(
+  id: string,
+  options: { includeInactive?: boolean } = {},
+): Promise<Product | null> {
+  let request = supabase.from('products').select(PRODUCT_SELECT).eq('slug', id);
+  if (!options.includeInactive) {
+    request = request.eq('is_active', true);
+  }
+  const { data, error } = await request.maybeSingle();
   if (error) {
     throw new Error(`Supabase getProductById failed: ${error.message}`);
   }

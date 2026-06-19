@@ -18,7 +18,10 @@ export type Category = {
 };
 
 export type Product = {
+  /** Public-facing slug used in routes (/product/{id}). */
   id: string;
+  /** Postgres UUID primary key. Needed by admin RPCs which only key by uuid. */
+  pk_id: string;
   name: string;
   description: string;
   price_monthly: number;
@@ -30,6 +33,8 @@ export type Product = {
   technical_specs: Record<string, string>;
   /** Higher first. Defaults to 0 when absent. */
   priority?: number;
+  /** Soft-delete flag. Public listings filter to true; admin sees both. */
+  is_active: boolean;
   created_at: string;
 };
 
@@ -69,4 +74,6 @@ export type ProductQuery = {
   minPrice?: number;
   maxPrice?: number;
   sort?: ProductSort;
+  /** Admin-only escape hatch: include soft-deleted (is_active=false) rows. */
+  includeInactive?: boolean;
 };
