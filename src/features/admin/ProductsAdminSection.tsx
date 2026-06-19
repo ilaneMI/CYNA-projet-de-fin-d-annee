@@ -18,6 +18,13 @@ import { getCategories, getProducts, type Category, type Product, type StockStat
 type SortKey = 'name' | 'category' | 'price' | 'stock' | 'status';
 type SortDirection = 'asc' | 'desc';
 type AvailabilityCode = 'in_stock' | 'limited' | 'out_of_stock';
+type StatusFilter = 'all' | 'active' | 'inactive';
+
+const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
+  all: 'Tous',
+  active: 'Actifs',
+  inactive: 'Désactivés',
+};
 
 const STOCK_TO_CODE: Record<StockStatus, AvailabilityCode> = {
   'En Stock': 'in_stock',
@@ -60,6 +67,7 @@ export default function ProductsAdminSection() {
   const [hydrated, setHydrated] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
@@ -111,9 +119,30 @@ export default function ProductsAdminSection() {
     }
   };
 
+  const filteredProducts = useMemo(() => {
+    switch (statusFilter) {
+      case 'active':
+        return products.filter((p) => p.is_active);
+      case 'inactive':
+        return products.filter((p) => !p.is_active);
+      case 'all':
+      default:
+        return products;
+    }
+  }, [products, statusFilter]);
+
+  const counts = useMemo(
+    () => ({
+      all: products.length,
+      active: products.filter((p) => p.is_active).length,
+      inactive: products.filter((p) => !p.is_active).length,
+    }),
+    [products],
+  );
+
   const sortedProducts = useMemo(() => {
     const direction = sortDirection === 'asc' ? 1 : -1;
-    const copy = [...products];
+    const copy = [...filteredProducts];
     copy.sort((a, b) => {
       switch (sortKey) {
         case 'price':
@@ -133,7 +162,7 @@ export default function ProductsAdminSection() {
       }
     });
     return copy;
-  }, [products, sortKey, sortDirection, categoryNameById]);
+  }, [filteredProducts, sortKey, sortDirection, categoryNameById]);
 
   const handleToggleActive = async (product: Product) => {
     setPendingId(product.pk_id);
@@ -211,6 +240,35 @@ export default function ProductsAdminSection() {
             Modifier, désactiver ou supprimer un produit. La modification de prix se fera dans
             un lot séparé (Stripe-aware).
           </p>
+        </div>
+        <div
+          role="radiogroup"
+          aria-label="Filtrer par statut"
+          className="inline-flex rounded-md border border-border bg-card p-0.5 text-xs"
+        >
+          {(Object.keys(STATUS_FILTER_LABEL) as StatusFilter[]).map((key) => {
+            const selected = statusFilter === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setStatusFilter(key)}
+                className={
+                  'rounded-sm px-3 py-1.5 font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ' +
+                  (selected
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground')
+                }
+              >
+                {STATUS_FILTER_LABEL[key]}{' '}
+                <span className={selected ? 'opacity-80' : 'text-muted-foreground'}>
+                  ({counts[key]})
+                </span>
+              </button>
+            );
+          })}
         </div>
       </header>
 
