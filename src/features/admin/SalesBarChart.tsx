@@ -1,12 +1,11 @@
 'use client';
 
-import type { DailySales } from './demoStats';
+import { type DailySales, formatEurosFromCents } from './adminStats';
 
 const VIEWBOX_WIDTH = 320;
 const VIEWBOX_HEIGHT = 140;
 const PADDING_Y = 18;
 const PADDING_X = 6;
-const formatPrice = (value: number) => `$${value.toLocaleString('fr-FR')}`;
 
 const formatDay = (iso: string): string => {
   const date = new Date(iso);
@@ -24,14 +23,14 @@ export default function SalesBarChart({ data }: Props) {
     );
   }
 
-  const max = Math.max(...data.map((entry) => entry.amount), 1);
+  const max = Math.max(...data.map((entry) => entry.amount_cents), 1);
   const innerHeight = VIEWBOX_HEIGHT - PADDING_Y * 2;
   const barCount = data.length;
   const slot = (VIEWBOX_WIDTH - PADDING_X * 2) / barCount;
   const barWidth = slot * 0.6;
 
   const description = data
-    .map((entry) => `${formatDay(entry.date)} : ${formatPrice(entry.amount)}`)
+    .map((entry) => `${formatDay(entry.date)} : ${formatEurosFromCents(entry.amount_cents)}`)
     .join('. ');
 
   return (
@@ -43,7 +42,7 @@ export default function SalesBarChart({ data }: Props) {
         aria-describedby="sales-bar-desc"
         className="h-44 w-full text-foreground"
       >
-        <title id="sales-bar-title">Ventes des 7 derniers jours (données démo)</title>
+        <title id="sales-bar-title">Ventes des derniers jours</title>
         <desc id="sales-bar-desc">{description}</desc>
 
         <line
@@ -56,7 +55,7 @@ export default function SalesBarChart({ data }: Props) {
         />
 
         {data.map((entry, index) => {
-          const height = Math.max(2, (entry.amount / max) * innerHeight);
+          const height = Math.max(2, (entry.amount_cents / max) * innerHeight);
           const x = PADDING_X + slot * index + (slot - barWidth) / 2;
           const y = VIEWBOX_HEIGHT - PADDING_Y - height;
           return (
@@ -86,7 +85,7 @@ export default function SalesBarChart({ data }: Props) {
 
       {/* Accessible textual alternative — visible to assistive tech only. */}
       <table className="sr-only">
-        <caption>Ventes des 7 derniers jours (données démo)</caption>
+        <caption>Ventes des derniers jours</caption>
         <thead>
           <tr>
             <th scope="col">Jour</th>
@@ -97,15 +96,11 @@ export default function SalesBarChart({ data }: Props) {
           {data.map((entry) => (
             <tr key={entry.date}>
               <th scope="row">{formatDay(entry.date)}</th>
-              <td>{formatPrice(entry.amount)}</td>
+              <td>{formatEurosFromCents(entry.amount_cents)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-
-      <figcaption className="text-xs text-muted-foreground">
-        Données démo — ventes journalières simulées.
-      </figcaption>
     </figure>
   );
 }

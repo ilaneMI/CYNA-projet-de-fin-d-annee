@@ -1,6 +1,6 @@
 'use client';
 
-import type { CategoryShare } from './demoStats';
+import { type CategoryShare, formatEurosFromCents } from './adminStats';
 
 const RADIUS = 70;
 const CX = 90;
@@ -24,12 +24,17 @@ const buildArcPath = (startAngle: number, endAngle: number): string => {
 };
 
 const formatPercent = (share: number): string => `${Math.round(share * 100)}%`;
-const formatPrice = (value: number): string => `$${value.toLocaleString('fr-FR')}`;
 
 type Props = { data: CategoryShare[] };
 
 export default function CategoryPieChart({ data }: Props) {
-  if (data.length === 0) return null;
+  if (data.length === 0) {
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        Aucune vente sur la période.
+      </p>
+    );
+  }
 
   let angle = -Math.PI / 2; // start at 12 o'clock
   const slices = data.map((entry, index) => {
@@ -45,7 +50,10 @@ export default function CategoryPieChart({ data }: Props) {
   });
 
   const description = data
-    .map((entry) => `${entry.categoryName} : ${formatPercent(entry.share)} (${formatPrice(entry.amount)})`)
+    .map(
+      (entry) =>
+        `${entry.category_name} : ${formatPercent(entry.share)} (${formatEurosFromCents(entry.amount_cents)})`,
+    )
     .join('. ');
 
   return (
@@ -57,19 +65,19 @@ export default function CategoryPieChart({ data }: Props) {
         aria-describedby="pie-chart-desc"
         className="mx-auto h-48 w-48"
       >
-        <title id="pie-chart-title">Répartition des ventes par catégorie (données démo)</title>
+        <title id="pie-chart-title">Répartition des ventes par catégorie</title>
         <desc id="pie-chart-desc">{description}</desc>
         {slices.map(({ entry, d, className }) => (
-          <path key={entry.categoryId} d={d} className={`${className} stroke-card`} strokeWidth="1.5" />
+          <path key={entry.category_id} d={d} className={`${className} stroke-card`} strokeWidth="1.5" />
         ))}
       </svg>
 
       <ul aria-label="Légende du camembert" className="grid grid-cols-2 gap-1.5 text-xs">
         {slices.map(({ entry, className }) => (
-          <li key={entry.categoryId} className="flex items-center gap-2 text-muted-foreground">
+          <li key={entry.category_id} className="flex items-center gap-2 text-muted-foreground">
             <span className={`inline-block h-2.5 w-2.5 rounded-sm ${className}`} aria-hidden="true" />
             <span>
-              <span className="text-foreground">{entry.categoryName}</span>{' '}
+              <span className="text-foreground">{entry.category_name}</span>{' '}
               <span className="text-muted-foreground">— {formatPercent(entry.share)}</span>
             </span>
           </li>
@@ -77,7 +85,7 @@ export default function CategoryPieChart({ data }: Props) {
       </ul>
 
       <table className="sr-only">
-        <caption>Répartition des ventes par catégorie (données démo)</caption>
+        <caption>Répartition des ventes par catégorie</caption>
         <thead>
           <tr>
             <th scope="col">Catégorie</th>
@@ -87,18 +95,14 @@ export default function CategoryPieChart({ data }: Props) {
         </thead>
         <tbody>
           {data.map((entry) => (
-            <tr key={entry.categoryId}>
-              <th scope="row">{entry.categoryName}</th>
+            <tr key={entry.category_id}>
+              <th scope="row">{entry.category_name}</th>
               <td>{formatPercent(entry.share)}</td>
-              <td>{formatPrice(entry.amount)}</td>
+              <td>{formatEurosFromCents(entry.amount_cents)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-
-      <figcaption className="text-xs text-muted-foreground">
-        Données démo — part de chiffre d&apos;affaires par catégorie.
-      </figcaption>
     </figure>
   );
 }

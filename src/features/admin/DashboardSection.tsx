@@ -1,40 +1,83 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Package, ShieldCheck, TrendingUp, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  CreditCard,
+  Package,
+  Repeat,
+  ShieldCheck,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
 import SalesBarChart from './SalesBarChart';
 import CategoryBasketChart from './CategoryBasketChart';
 import CategoryPieChart from './CategoryPieChart';
-import { demoAverageBaskets, demoCategoryShares, demoSalesSeries } from './demoStats';
+import {
+  formatEurosFromCents,
+  loadCategoryAverageBaskets,
+  loadCategoryShares,
+  loadDailySales,
+  loadDashboardKpis,
+  type CategoryAverageBasket,
+  type CategoryShare,
+  type DailySales,
+  type DashboardKpis,
+} from './adminStats';
 import { getCategories, getProducts, type Category, type Product } from '@/lib/data';
 
-type Counters = {
-  products: number;
-  categories: number;
+const WINDOW_DAYS = 7;
+
+type DashboardData = {
+  kpis: DashboardKpis;
+  sales: DailySales[];
+  shares: CategoryShare[];
+  baskets: CategoryAverageBasket[];
+  productsCount: number;
+  categoriesCount: number;
 };
 
-const formatPrice = (value: number): string => `$${value.toLocaleString('fr-FR')}`;
+type State =
+  | { stage: 'loading' }
+  | { stage: 'error'; message: string }
+  | { stage: 'ready'; data: DashboardData };
 
 export default function DashboardSection() {
-  const [counters, setCounters] = useState<Counters>({ products: 0, categories: 0 });
-  const [hydrated, setHydrated] = useState(false);
+  const [state, setState] = useState<State>({ stage: 'loading' });
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([getProducts(), getCategories()]).then(([products, categories]: [Product[], Category[]]) => {
-      if (cancelled) return;
-      setCounters({ products: products.length, categories: categories.length });
-      setHydrated(true);
-    });
+    void (async () => {
+      try {
+        const [kpis, sales, shares, baskets, products, categories] = await Promise.all([
+          loadDashboardKpis(WINDOW_DAYS),
+          loadDailySales(WINDOW_DAYS),
+          loadCategoryShares(WINDOW_DAYS),
+          loadCategoryAverageBaskets(WINDOW_DAYS),
+          getProducts() as Promise<Product[]>,
+          getCategories() as Promise<Category[]>,
+        ]);
+        if (cancelled) return;
+        setState({
+          stage: 'ready',
+          data: {
+            kpis,
+            sales,
+            shares,
+            baskets,
+            productsCount: products.length,
+            categoriesCount: categories.length,
+          },
+        });
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'Erreur inconnue';
+        setState({ stage: 'error', message });
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
-
-  const sales = useMemo(() => demoSalesSeries(), []);
-  const baskets = useMemo(() => demoAverageBaskets(), []);
-  const shares = useMemo(() => demoCategoryShares(), []);
-  const weeklyRevenue = useMemo(() => sales.reduce((sum, entry) => sum + entry.amount, 0), [sales]);
 
   return (
     <section id="dashboard" aria-labelledby="dashboard-heading" className="space-y-6">
@@ -44,55 +87,64 @@ export default function DashboardSection() {
             Tableau de bord ventes
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Données démo : les chiffres ci-dessous sont simulés et seront remplacés par les
-            agrégations Supabase au branchement.
+            Agrégats sur les {WINDOW_DAYS} derniers jours, calculés côté Supabase à partir des
+            commandes payées.
           </p>
         </div>
-        <span
-          role="note"
-          className="self-start rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"
-        >
-          Données démo
-        </span>
       </header>
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <dt className="flex items-center gap-2 text-xs text-muted-foreground">
-            <TrendingUp aria-hidden="true" className="h-4 w-4 text-primary" />
-            Revenu 7 j.
-          </dt>
-          <dd className="mt-1 text-xl font-bold text-foreground sm:text-2xl">
-            {formatPrice(weeklyRevenue)}
-          </dd>
+      {state.stage === 'loading' && (
+        <div
+          aria-busy="true"
+          aria-live="polite"
+          className="rounded-lg border border-border bg-card/40 p-6 text-sm text-muted-foreground"
+        >
+          Chargement des statistiques…
         </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <dt className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Users aria-hidden="true" className="h-4 w-4 text-primary" />
-            Panier moyen
-          </dt>
-          <dd className="mt-1 text-xl font-bold text-foreground sm:text-2xl">
-            {formatPrice(Math.round(weeklyRevenue / 32))}
-          </dd>
+      )}
+
+      {state.stage === 'error' && (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+        >
+          <p className="font-medium">Impossible de charger le tableau de bord.</p>
+          <p className="mt-1 break-all">{state.message}</p>
+          <p className="mt-2 text-muted-foreground">
+            Si vous êtes connecté avec un compte non administrateur, les RPC d&apos;agrégation
+            refusent par conception (code Postgres 42501).
+          </p>
         </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <dt className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Package aria-hidden="true" className="h-4 w-4 text-primary" />
-            Produits actifs
-          </dt>
-          <dd className="mt-1 text-xl font-bold text-foreground sm:text-2xl">
-            {hydrated ? counters.products : '—'}
-          </dd>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <dt className="flex items-center gap-2 text-xs text-muted-foreground">
-            <ShieldCheck aria-hidden="true" className="h-4 w-4 text-primary" />
-            Catégories
-          </dt>
-          <dd className="mt-1 text-xl font-bold text-foreground sm:text-2xl">
-            {hydrated ? counters.categories : '—'}
-          </dd>
-        </div>
+      )}
+
+      {state.stage === 'ready' && <ReadyView data={state.data} />}
+    </section>
+  );
+}
+
+function ReadyView({ data }: { data: DashboardData }) {
+  const { kpis, sales, shares, baskets, productsCount, categoriesCount } = data;
+  return (
+    <>
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Kpi icon={<TrendingUp aria-hidden="true" className="h-4 w-4 text-primary" />} label={`Revenu ${WINDOW_DAYS} j.`}>
+          {formatEurosFromCents(kpis.revenue_cents)}
+        </Kpi>
+        <Kpi icon={<Users aria-hidden="true" className="h-4 w-4 text-primary" />} label="Panier moyen">
+          {formatEurosFromCents(kpis.average_basket_cents)}
+        </Kpi>
+        <Kpi icon={<CreditCard aria-hidden="true" className="h-4 w-4 text-primary" />} label="Commandes payées">
+          {kpis.paid_orders_count.toLocaleString('fr-FR')}
+        </Kpi>
+        <Kpi icon={<Repeat aria-hidden="true" className="h-4 w-4 text-primary" />} label="Abonnements actifs">
+          {kpis.active_subscriptions_count.toLocaleString('fr-FR')}
+        </Kpi>
+        <Kpi icon={<Package aria-hidden="true" className="h-4 w-4 text-primary" />} label="Produits actifs">
+          {productsCount.toLocaleString('fr-FR')}
+        </Kpi>
+        <Kpi icon={<ShieldCheck aria-hidden="true" className="h-4 w-4 text-primary" />} label="Catégories">
+          {categoriesCount.toLocaleString('fr-FR')}
+        </Kpi>
       </dl>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -109,6 +161,26 @@ export default function DashboardSection() {
           <CategoryBasketChart data={baskets} />
         </div>
       </div>
-    </section>
+    </>
+  );
+}
+
+function Kpi({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <dt className="flex items-center gap-2 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </dt>
+      <dd className="mt-1 text-xl font-bold text-foreground sm:text-2xl">{children}</dd>
+    </div>
   );
 }

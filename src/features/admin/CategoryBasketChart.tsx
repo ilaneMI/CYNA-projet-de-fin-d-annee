@@ -1,6 +1,6 @@
 'use client';
 
-import type { CategoryAverageBasket } from './demoStats';
+import { type CategoryAverageBasket, formatEurosFromCents } from './adminStats';
 
 const VIEWBOX_WIDTH = 320;
 const VIEWBOX_HEIGHT = 160;
@@ -9,22 +9,26 @@ const PADDING_TOP = 18;
 const PADDING_BOTTOM = 30;
 
 const SERIES: Array<{
-  key: 'monthly' | 'annual' | 'perUser';
+  key: 'monthly_cents' | 'annual_cents' | 'per_user_cents';
   label: string;
   /** Tailwind utility translated to fill colour. */
   className: string;
 }> = [
-  { key: 'monthly', label: 'Mensuel', className: 'fill-primary' },
-  { key: 'annual', label: 'Annuel', className: 'fill-primary/60' },
-  { key: 'perUser', label: 'Par utilisateur', className: 'fill-primary/30' },
+  { key: 'monthly_cents', label: 'Mensuel', className: 'fill-primary' },
+  { key: 'annual_cents', label: 'Annuel', className: 'fill-primary/60' },
+  { key: 'per_user_cents', label: 'Par utilisateur', className: 'fill-primary/30' },
 ];
-
-const formatPrice = (value: number) => `$${value.toLocaleString('fr-FR')}`;
 
 type Props = { data: CategoryAverageBasket[] };
 
 export default function CategoryBasketChart({ data }: Props) {
-  if (data.length === 0) return null;
+  if (data.length === 0) {
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        Aucune vente sur la période.
+      </p>
+    );
+  }
 
   const innerHeight = VIEWBOX_HEIGHT - PADDING_TOP - PADDING_BOTTOM;
   const innerWidth = VIEWBOX_WIDTH - PADDING_X * 2;
@@ -32,14 +36,20 @@ export default function CategoryBasketChart({ data }: Props) {
   const seriesCount = SERIES.length;
   const barWidth = (groupSlot * 0.7) / seriesCount;
   const max = Math.max(
-    ...data.flatMap((entry) => [entry.monthly, entry.annual, entry.perUser]),
+    ...data.flatMap((entry) => [
+      entry.monthly_cents ?? 0,
+      entry.annual_cents ?? 0,
+      entry.per_user_cents ?? 0,
+    ]),
     1,
   );
 
   const description = data
     .map(
       (entry) =>
-        `${entry.categoryName} : mensuel ${formatPrice(entry.monthly)}, annuel ${formatPrice(entry.annual)}, par utilisateur ${formatPrice(entry.perUser)}`,
+        `${entry.category_name} : mensuel ${formatEurosFromCents(entry.monthly_cents)}, ` +
+        `annuel ${formatEurosFromCents(entry.annual_cents)}, ` +
+        `par utilisateur ${formatEurosFromCents(entry.per_user_cents)}`,
     )
     .join('. ');
 
@@ -53,7 +63,7 @@ export default function CategoryBasketChart({ data }: Props) {
         className="h-48 w-full"
       >
         <title id="basket-chart-title">
-          Panier moyen par catégorie et par durée d&apos;abonnement (données démo)
+          Panier moyen par catégorie et par durée d&apos;abonnement
         </title>
         <desc id="basket-chart-desc">{description}</desc>
 
@@ -69,10 +79,10 @@ export default function CategoryBasketChart({ data }: Props) {
         {data.map((entry, index) => {
           const groupX = PADDING_X + groupSlot * index;
           return (
-            <g key={entry.categoryId}>
+            <g key={entry.category_id}>
               {SERIES.map((series, seriesIndex) => {
-                const value = entry[series.key];
-                const height = Math.max(1, (value / max) * innerHeight);
+                const value = entry[series.key] ?? 0;
+                const height = value === 0 ? 0 : Math.max(1, (value / max) * innerHeight);
                 const x =
                   groupX + (groupSlot - barWidth * seriesCount) / 2 + barWidth * seriesIndex;
                 const y = VIEWBOX_HEIGHT - PADDING_BOTTOM - height;
@@ -96,7 +106,7 @@ export default function CategoryBasketChart({ data }: Props) {
                 className="fill-muted-foreground"
                 style={{ fontSize: '8px' }}
               >
-                {entry.categoryName}
+                {entry.category_name}
               </text>
             </g>
           );
@@ -113,7 +123,7 @@ export default function CategoryBasketChart({ data }: Props) {
       </ul>
 
       <table className="sr-only">
-        <caption>Panier moyen par catégorie et par durée (données démo)</caption>
+        <caption>Panier moyen par catégorie et par durée</caption>
         <thead>
           <tr>
             <th scope="col">Catégorie</th>
@@ -124,19 +134,15 @@ export default function CategoryBasketChart({ data }: Props) {
         </thead>
         <tbody>
           {data.map((entry) => (
-            <tr key={entry.categoryId}>
-              <th scope="row">{entry.categoryName}</th>
-              <td>{formatPrice(entry.monthly)}</td>
-              <td>{formatPrice(entry.annual)}</td>
-              <td>{formatPrice(entry.perUser)}</td>
+            <tr key={entry.category_id}>
+              <th scope="row">{entry.category_name}</th>
+              <td>{formatEurosFromCents(entry.monthly_cents)}</td>
+              <td>{formatEurosFromCents(entry.annual_cents)}</td>
+              <td>{formatEurosFromCents(entry.per_user_cents)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-
-      <figcaption className="text-xs text-muted-foreground">
-        Données démo — panier moyen sur les 30 derniers jours.
-      </figcaption>
     </figure>
   );
 }
