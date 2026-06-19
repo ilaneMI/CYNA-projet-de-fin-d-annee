@@ -15,12 +15,17 @@ import { useCart } from '@/context/CartContext';
  * Lifecycle:
  *   1. Stripe redirects here after the user pays. URL :
  *        /checkout/success?session_id=cs_test_xxx
- *   2. Clear the cart on mount — the user has paid; whatever items were
- *      in the local cart are now reflected in their order on Stripe.
- *   3. Poll public.orders for a row matching this session_id (the row is
+ *   2. Poll public.orders for a row matching this session_id (the row is
  *      created server-side by the webhook on `checkout.session.completed`).
  *      Up to 10 attempts at 1s interval; if the webhook is slow we show
  *      a "paiement en cours de confirmation" state with a manual refresh.
+ *   3. The moment the polled order is found, clear the cart exactly once.
+ *      Doing it on mount instead would race with CartContext hydration:
+ *      setCartItems([]) fires before `hydrated` flips true, the write
+ *      effect is skipped, then hydrate reads the still-full localStorage
+ *      key and the cart reappears. Gating on `order` defers the clear
+ *      until well after hydration. A direct visit to /checkout/success
+ *      with no real payment never finds an order → cart is preserved.
  *   4. RLS lets the authenticated user read their own row (auth.uid() =
  *      user_id) — no service-role plumbing client-side.
  */
@@ -58,14 +63,17 @@ export default function SuccessView() {
   const [refreshing, setRefreshing] = useState(false);
   const cartCleared = useRef(false);
 
-  // Clear the cart once — the payment is done at Stripe's side regardless
-  // of whether the local DB row has been written yet by the webhook.
+  // Clear the cart exactly once, the moment the polled order is found.
+  // See file header for the rationale (no clearing on mount: races with
+  // CartContext hydration; no clearing on timeout or error: the order
+  // may still arrive on a subsequent retry and the user might want to
+  // retry the same items if the webhook ultimately failed).
   useEffect(() => {
-    if (sessionId && !cartCleared.current) {
+    if (order && !cartCleared.current) {
       clearCart();
       cartCleared.current = true;
     }
-  }, [sessionId, clearCart]);
+  }, [order, clearCart]);
 
   useEffect(() => {
     if (!sessionId || loading || !currentUser) return;
