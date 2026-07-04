@@ -1,6 +1,12 @@
+import createNextIntlPlugin from 'next-intl/plugin';
+
 /** @type {import('next').NextConfig} */
 
 const isDev = process.env.NODE_ENV !== 'production';
+
+// i18n LOT 1 — pointe next-intl vers src/i18n/request.ts pour le
+// chargement des messages RSC.
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 /**
  * Content Security Policy.
@@ -62,4 +68,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

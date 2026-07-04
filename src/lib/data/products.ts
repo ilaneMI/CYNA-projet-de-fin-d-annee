@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Product, ProductQuery, StockStatus } from './types';
+import type { Product, ProductImage, ProductQuery, StockStatus } from './types';
 
 /**
  * Flattens the normalized catalogue (products + product_images + prices +
@@ -33,6 +33,8 @@ type PriceRow = {
 type ImageRow = {
   url: string;
   position: number;
+  /** jsonb i18n map en base ({fr,en,…}) — peut être null si non renseigné. */
+  alt: Record<string, string> | null;
 };
 
 type ProductRow = {
@@ -71,7 +73,7 @@ const STOCK_ORDER: Record<StockStatus, number> = {
 const PRODUCT_SELECT = `
   id, slug, name, description, specs, availability, priority, is_active, created_at,
   category:categories!inner ( id, slug ),
-  product_images ( url, position ),
+  product_images ( url, position, alt ),
   prices ( billing_interval, unit_type, unit_amount, currency, is_active )
 `;
 
@@ -86,11 +88,17 @@ const findPriceCents = (
   return match?.unit_amount ?? 0;
 };
 
-const firstImageUrl = (images: ImageRow[]): string => {
-  if (images.length === 0) return '';
-  const sorted = [...images].sort((a, b) => a.position - b.position);
-  return sorted[0]?.url ?? '';
-};
+const sortImages = (images: ImageRow[]): ImageRow[] =>
+  [...images].sort((a, b) => a.position - b.position);
+
+const firstImageUrl = (images: ImageRow[]): string =>
+  sortImages(images)[0]?.url ?? '';
+
+const toGalleryImage = (row: ImageRow): ProductImage => ({
+  url: row.url,
+  position: row.position,
+  alt: row.alt?.fr ?? null,
+});
 
 const toProduct = (row: ProductRow): Product => ({
   id: row.slug,
@@ -102,6 +110,7 @@ const toProduct = (row: ProductRow): Product => ({
   price_per_user: findPriceCents(row.prices, 'monthly', 'per_user') / 100,
   category_id: row.category.slug,
   image_url: firstImageUrl(row.product_images),
+  images: sortImages(row.product_images).map(toGalleryImage),
   stock_status: AVAILABILITY_LABEL[row.availability],
   technical_specs: row.specs ?? {},
   priority: row.priority,

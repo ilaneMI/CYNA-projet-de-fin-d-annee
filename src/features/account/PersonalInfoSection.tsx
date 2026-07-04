@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { validateEmail, validatePassword } from '@/lib/auth';
 
 export default function PersonalInfoSection() {
+  const t = useTranslations('account.personal');
   const { currentUser, updateProfile, updatePassword } = useAuth();
   const [fullName, setFullName] = useState(currentUser?.full_name ?? '');
   const [email, setEmail] = useState(currentUser?.email ?? '');
@@ -36,7 +38,7 @@ export default function PersonalInfoSection() {
     const result = await updateProfile({ full_name: fullName.trim(), email: email.trim() });
     setProfileSubmitting(false);
     if (!result.success) {
-      setProfileError(result.error ?? 'La mise à jour a échoué.');
+      setProfileError(result.error ?? t('updateFailed'));
     }
   };
 
@@ -53,26 +55,24 @@ export default function PersonalInfoSection() {
       setConfirmPassword('');
       return;
     }
-    setPasswordError(result.error ?? 'La mise à jour a échoué.');
+    setPasswordError(result.error ?? t('updateFailed'));
   };
 
   return (
     <section id="personal-info" aria-labelledby="personal-info-heading" className="space-y-6">
       <header>
         <h2 id="personal-info-heading" className="text-xl font-bold text-foreground sm:text-2xl">
-          Informations personnelles
+          {t('heading')}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Mettez à jour votre nom et votre email, ou changez votre mot de passe.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">{t('subheading')}</p>
       </header>
 
       <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
-        <form onSubmit={handleProfileSubmit} noValidate className="space-y-4" aria-label="Profil">
+        <form onSubmit={handleProfileSubmit} noValidate className="space-y-4" aria-label={t('profileAria')}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="account-fullname" className="mb-1 block text-sm font-medium text-foreground">
-                Nom complet
+                {t('fullName')}
               </label>
               <input
                 id="account-fullname"
@@ -85,7 +85,7 @@ export default function PersonalInfoSection() {
             </div>
             <div>
               <label htmlFor="account-email" className="mb-1 block text-sm font-medium text-foreground">
-                Email
+                {t('email')}
               </label>
               <input
                 id="account-email"
@@ -99,7 +99,7 @@ export default function PersonalInfoSection() {
               />
               {email.length > 0 && !emailValid && (
                 <p id="account-email-error" role="alert" className="mt-1 text-sm text-destructive">
-                  Format d&apos;email invalide.
+                  {t('emailInvalid')}
                 </p>
               )}
             </div>
@@ -109,10 +109,7 @@ export default function PersonalInfoSection() {
               localStorage user. With Supabase Auth, the new address must be
               re-confirmed through a verification email before the change is
               persisted server-side. */}
-          <p className="text-xs text-muted-foreground">
-            Un email de re-confirmation sera envoyé à la nouvelle adresse une fois Supabase Auth
-            branché.
-          </p>
+          <p className="text-xs text-muted-foreground">{t('emailReconfirmNotice')}</p>
 
           <p
             id="account-profile-error"
@@ -129,16 +126,14 @@ export default function PersonalInfoSection() {
             aria-busy={profileSubmitting || undefined}
             aria-describedby={profileError ? 'account-profile-error' : undefined}
           >
-            {profileSubmitting ? 'Enregistrement…' : 'Enregistrer les modifications'}
+            {profileSubmitting ? t('saving') : t('saveProfile')}
           </Button>
         </form>
       </div>
 
       <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
-        <h3 className="mb-1 text-lg font-semibold text-foreground">Changer le mot de passe</h3>
-        <p className="mb-5 text-sm text-muted-foreground">
-          Saisissez votre mot de passe actuel pour confirmer le changement.
-        </p>
+        <h3 className="mb-1 text-lg font-semibold text-foreground">{t('password.heading')}</h3>
+        <p className="mb-5 text-sm text-muted-foreground">{t('password.subheading')}</p>
 
         {/* FIXME-SECURITY: client-side current-password verification via
             SHA-256 comparison. Supabase Auth will check the current password
@@ -148,11 +143,11 @@ export default function PersonalInfoSection() {
           onSubmit={handlePasswordSubmit}
           noValidate
           className="space-y-4"
-          aria-label="Changement de mot de passe"
+          aria-label={t('password.formAria')}
         >
           <div>
             <label htmlFor="account-current-password" className="mb-1 block text-sm font-medium text-foreground">
-              Mot de passe actuel
+              {t('password.current')}
             </label>
             <input
               id="account-current-password"
@@ -166,7 +161,7 @@ export default function PersonalInfoSection() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="account-new-password" className="mb-1 block text-sm font-medium text-foreground">
-                Nouveau mot de passe
+                {t('password.new')}
               </label>
               <input
                 id="account-new-password"
@@ -180,7 +175,7 @@ export default function PersonalInfoSection() {
             </div>
             <div>
               <label htmlFor="account-confirm-password" className="mb-1 block text-sm font-medium text-foreground">
-                Confirmer le nouveau mot de passe
+                {t('password.confirm')}
               </label>
               <input
                 id="account-confirm-password"
@@ -196,14 +191,14 @@ export default function PersonalInfoSection() {
               />
               {confirmPassword.length > 0 && !passwordsMatch && (
                 <p id="account-password-mismatch" role="alert" className="mt-1 text-sm text-destructive">
-                  Les mots de passe ne correspondent pas.
+                  {t('password.mismatch')}
                 </p>
               )}
             </div>
           </div>
 
           <ul id="account-password-rules" className="space-y-1 text-xs text-muted-foreground">
-            <li>Au moins 8 caractères, avec une majuscule, un chiffre et un caractère spécial.</li>
+            <li>{t('password.rule')}</li>
           </ul>
 
           <p
@@ -222,7 +217,7 @@ export default function PersonalInfoSection() {
             aria-busy={passwordSubmitting || undefined}
             aria-describedby={passwordError ? 'account-password-error' : undefined}
           >
-            {passwordSubmitting ? 'Mise à jour…' : 'Mettre à jour le mot de passe'}
+            {passwordSubmitting ? t('password.updating') : t('password.submit')}
           </Button>
         </form>
       </div>

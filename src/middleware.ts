@@ -1,58 +1,94 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import createIntlMiddleware from 'next-intl/middleware';
+import { routing } from '@/i18n/routing';
 
 /**
- * Server-side admin gate for /admin/*.
+ * Middleware composé — i18n LOT 1 + admin gate F2 (AAL2).
  *
- * Three-layer protection model:
- *   1. THIS middleware — authoritative server gate. Bounces unauthenticated
- *      and non-admin requests BEFORE Next renders the /admin route, so the
- *      back-office HTML body never leaves the server. Also enforces AAL2
- *      (password + verified TOTP for the current session) per the policy
- *      that admins MUST use 2FA. The TOTP enrollment UI lives at
- *      `/my-account#two-factor` and the step-up form at `/admin/verify`;
- *      both remain reachable without AAL2 to avoid a lockout loop.
- *   2. Client-side `isAdmin()` in `src/features/admin/guard.ts` — UX only;
- *      hides the admin link in the header and prevents a flash of admin UI
- *      while the SPA settles. Easily bypassed by a determined attacker.
- *   3. Postgres RLS via `public.is_admin()` (see `modele-donnees-CYNA.md`
- *      §4) — ultimate defence. Even if both gates were bypassed, every
- *      read/write on admin-touched tables is checked row-by-row and
- *      rejected for non-admins.
+ * DEUX PRÉOCCUPATIONS DISTINCTES :
  *
- * We read `public.profiles` with the user's own anon-key session, NOT with
- * the service_role. The `profiles_self_or_admin_read` RLS policy lets a
- * user select their own row — exactly what we need to know their role.
- * Putting the service_role anywhere near a request-scoped client would
- * defeat the whole RLS model.
+ *   1. i18n (next-intl) : routing des URLs vers src/app/[locale]/* selon
+ *      la locale (as-needed → FR sans préfixe, EN = /en/*). Cookie
+ *      NEXT_LOCALE géré par next-intl pour préférence utilisateur.
  *
- * Future hardening (Admin CRUD lot, NOT this commit): thread the JWT `aal`
- * claim into RLS policies on admin-writable tables (products, orders,
- * audit log) so even a leaked cookie can perform no admin write without
- * AAL2 on the same session.
+ *   2. Admin gate (F2) : bounces des requêtes non-admin / non-AAL2 AVANT
+ *      que la page /admin soit rendue. Inchangé fonctionnellement — les
+ *      redirects préservent maintenant la locale courante.
+ *
+ * NON-RÉGRESSION CRITIQUE :
+ *   - /api/**  → EXCLUS DU MATCHER. Webhook Stripe, routes admin API,
+ *     payment methods : aucune interférence, aucun préfixe locale.
+ *   - /_next/* et fichiers statiques → exclus par extension pattern.
+ *   - Le gate admin utilise EXACTEMENT la même logique F2 qu'avant :
+ *     getUser → profile role → AAL2. Les redirects appliquent le préfixe
+ *     locale via `withLocalePrefix()`.
+ *
+ * TRADE-OFF ASSUMÉ :
+ *   Sur un pass-through admin (utilisateur AAL2 valide), les cookies de
+ *   rotation Supabase capturés par le supabase-ssr callback ne sont PAS
+ *   propagés sur la réponse d'intlMiddleware. Impact : au prochain
+ *   request, @supabase/ssr rafraîchira les tokens si nécessaire — le
+ *   session est auto-guérissante. Documenté en commentaire pour éviter
+ *   la surprise. Sur les redirects (gate KO), les cookies sont bien
+ *   forwardés via `forwardCookies()`.
  */
 
+const intlMiddleware = createIntlMiddleware(routing);
+
+// ── Locale detection (URL uniquement, matches `as-needed`) ─────────────
+type SupportedLocale = (typeof routing.locales)[number];
+
+function getLocaleFromPath(pathname: string): SupportedLocale {
+  // as-needed : seul EN a un préfixe. FR = pas de préfixe.
+  if (pathname === '/en' || pathname.startsWith('/en/')) return 'en';
+  return 'fr';
+}
+
+function withLocalePrefix(pathname: string, locale: SupportedLocale): string {
+  if (locale === 'fr') return pathname;
+  return `/${locale}${pathname}`;
+}
+
+function stripLocalePrefix(pathname: string): string {
+  if (pathname === '/en') return '/';
+  if (pathname.startsWith('/en/')) return pathname.slice(3);
+  return pathname;
+}
+
+// ── Admin gate constantes (paths sans préfixe locale) ──────────────────
+const ADMIN_PATH = '/admin';
 const LOGIN_PATH = '/login';
 const FORBIDDEN_REDIRECT = '/';
 const STEP_UP_PATH = '/admin/verify';
 const MFA_ENROLL_PATH = '/my-account';
 
 export async function middleware(request: NextRequest) {
-  // Mutable response reference so cookie refreshes from supabase.auth.getUser()
-  // (rotating access tokens) propagate back to the browser. Rebuilding the
-  // response inside setAll is the documented @supabase/ssr middleware pattern.
-  let response = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
+  const stripped = stripLocalePrefix(pathname);
+  const isAdminPath =
+    stripped === ADMIN_PATH || stripped.startsWith(`${ADMIN_PATH}/`);
+
+  if (!isAdminPath) {
+    // Chemin non-admin : intl gère seul (routing locale, cookie NEXT_LOCALE).
+    return intlMiddleware(request);
+  }
+
+  // ── Gate admin — logique F2 (AAL2), inchangée fonctionnellement ──────
+  const locale = getLocaleFromPath(pathname);
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
   if (!supabaseUrl || !supabaseAnonKey) {
-    // Fail closed: with no Supabase configured we cannot verify the gate,
-    // so treat the request as unauthenticated. Better a redirect loop than
-    // a wide-open back-office.
-    return redirectToLogin(request);
+    // Fail-closed
+    return redirectWithLocale(request, LOGIN_PATH, locale, {
+      preserveOrigin: true,
+    });
   }
 
+  // Cookies rotation Supabase captées via setAll. Forwardées sur les
+  // redirects (échecs de gate), perdues sur pass-through (accepté).
+  let response = NextResponse.next({ request });
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
@@ -70,16 +106,15 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  // getUser() round-trips to the Supabase Auth server and validates the JWT
-  // signature + expiry, so a tampered cookie cannot fake a session.
-  // getSession() reads the cookie locally and is unsafe inside a security
-  // gate — never use it here.
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return forwardCookies(redirectToLogin(request), response);
+    return forwardCookies(
+      redirectWithLocale(request, LOGIN_PATH, locale, { preserveOrigin: true }),
+      response,
+    );
   }
 
   const { data: profile } = await supabase
@@ -89,52 +124,55 @@ export async function middleware(request: NextRequest) {
     .maybeSingle();
 
   if (profile?.role !== 'admin' || profile.is_active !== true) {
-    const url = request.nextUrl.clone();
-    url.pathname = FORBIDDEN_REDIRECT;
-    url.search = '';
-    return forwardCookies(NextResponse.redirect(url, 307), response);
+    return forwardCookies(
+      redirectWithLocale(request, FORBIDDEN_REDIRECT, locale),
+      response,
+    );
   }
 
-  // /admin/verify is the step-up page itself — letting the AAL check fire
-  // on it would redirect to itself in a loop. The user is already proven
-  // to be an active admin at this point, so it is safe to pass through.
-  if (request.nextUrl.pathname === STEP_UP_PATH) {
-    return response;
+  // /admin/verify : page step-up. Pass sans check AAL2 (sinon loop).
+  if (stripped === STEP_UP_PATH) {
+    return intlMiddleware(request);
   }
 
-  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  const { data: aal } =
+    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
-  // Full admin: password + TOTP verified for this session.
   if (aal?.currentLevel === 'aal2') {
-    return response;
+    // Admin AAL2 OK — passe à intl pour le routing locale.
+    return intlMiddleware(request);
   }
 
-  // Admin holds a verified factor but this session is still AAL1 — send
-  // them through /admin/verify to step up, preserving the original target.
   if (aal?.nextLevel === 'aal2' && aal.currentLevel === 'aal1') {
-    const url = request.nextUrl.clone();
-    url.pathname = STEP_UP_PATH;
-    url.search = '';
-    url.searchParams.set('from', request.nextUrl.pathname);
-    return forwardCookies(NextResponse.redirect(url, 307), response);
+    return forwardCookies(
+      redirectWithLocale(request, STEP_UP_PATH, locale, {
+        preserveOrigin: true,
+      }),
+      response,
+    );
   }
 
-  // No verified factor: admins must enroll. Send to /my-account with a
-  // reason hint so the page surfaces an inline alert and scrolls to the
-  // 2FA section.
+  // Pas de facteur enrôlé — redirect vers /my-account?reason=mfa_required
   const enrollUrl = request.nextUrl.clone();
-  enrollUrl.pathname = MFA_ENROLL_PATH;
+  enrollUrl.pathname = withLocalePrefix(MFA_ENROLL_PATH, locale);
   enrollUrl.search = '';
   enrollUrl.hash = '';
   enrollUrl.searchParams.set('reason', 'mfa_required');
   return forwardCookies(NextResponse.redirect(enrollUrl, 307), response);
 }
 
-function redirectToLogin(request: NextRequest): NextResponse {
+function redirectWithLocale(
+  request: NextRequest,
+  targetPath: string,
+  locale: SupportedLocale,
+  opts: { preserveOrigin?: boolean } = {},
+): NextResponse {
   const url = request.nextUrl.clone();
-  url.pathname = LOGIN_PATH;
+  url.pathname = withLocalePrefix(targetPath, locale);
   url.search = '';
-  url.searchParams.set('from', request.nextUrl.pathname);
+  if (opts.preserveOrigin) {
+    url.searchParams.set('from', request.nextUrl.pathname);
+  }
   return NextResponse.redirect(url, 307);
 }
 
@@ -145,9 +183,12 @@ function forwardCookies(target: NextResponse, source: NextResponse): NextRespons
   return target;
 }
 
-// Strict matcher: ONLY /admin and /admin/* run through this middleware.
-// Other routes (/, /catalogue, /login, /my-account…) are not intercepted,
-// so neither latency nor cookie-refresh side effects leak onto them.
+// Matcher : exclut /api, /_next, /_vercel, fichiers statiques.
+// Résultat : middleware N'INTERCEPTE PAS les routes API — le webhook
+// Stripe, les routes admin API, les payment methods restent au chemin
+// exact sans préfixe locale.
 export const config = {
-  matcher: ['/admin', '/admin/:path*'],
+  matcher: [
+    '/((?!api|_next|_vercel|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)',
+  ],
 };

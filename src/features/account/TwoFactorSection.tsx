@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { useTranslations } from 'next-intl';
 import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -32,23 +33,6 @@ type EnrollPayload = {
   secret: string;
 };
 
-function mapMfaError(raw: string): string {
-  const m = raw.toLowerCase();
-  if (m.includes('invalid totp') || m.includes('invalid code') || m.includes('invalid one-time')) {
-    return 'Code à 6 chiffres invalide.';
-  }
-  if (m.includes('aal2') && m.includes('required')) {
-    return 'Vérification 2FA requise pour cette opération.';
-  }
-  if (m.includes('expir')) {
-    return 'Le code a expiré, recommencez.';
-  }
-  if (m.includes('not found') || m.includes('does not exist')) {
-    return 'Facteur introuvable, rechargez la page.';
-  }
-  return raw;
-}
-
 const codeInputClass =
   'w-full rounded-md border border-input bg-background px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary font-mono text-lg tracking-widest';
 
@@ -56,6 +40,7 @@ const destructiveBoxClass =
   'rounded-lg border border-destructive/50 bg-destructive/5 px-4 py-3 text-sm text-destructive';
 
 export default function TwoFactorSection() {
+  const t = useTranslations('account.twoFactor');
   const { currentUser } = useAuth();
   const { toast } = useToast();
 
@@ -66,6 +51,23 @@ export default function TwoFactorSection() {
   const [enrollPayload, setEnrollPayload] = useState<EnrollPayload | null>(null);
   const [code, setCode] = useState('');
 
+  function mapMfaError(raw: string): string {
+    const m = raw.toLowerCase();
+    if (m.includes('invalid totp') || m.includes('invalid code') || m.includes('invalid one-time')) {
+      return t('mfaError.invalidCode');
+    }
+    if (m.includes('aal2') && m.includes('required')) {
+      return t('mfaError.aal2Required');
+    }
+    if (m.includes('expir')) {
+      return t('mfaError.expired');
+    }
+    if (m.includes('not found') || m.includes('does not exist')) {
+      return t('mfaError.notFound');
+    }
+    return raw;
+  }
+
   useEffect(() => {
     void refreshStage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,7 +77,7 @@ export default function TwoFactorSection() {
     const { data, error: listErr } = await supabase.auth.mfa.listFactors();
     if (listErr) {
       toast({
-        title: 'Erreur 2FA',
+        title: t('toastError.title'),
         description: mapMfaError(listErr.message),
         variant: 'destructive',
       });
@@ -111,7 +113,7 @@ export default function TwoFactorSection() {
     });
     setBusy(false);
     if (enrollErr || !data) {
-      setError(enrollErr ? mapMfaError(enrollErr.message) : "L'enrôlement a échoué.");
+      setError(enrollErr ? mapMfaError(enrollErr.message) : t('enrollFailed'));
       return;
     }
     setEnrollPayload({
@@ -133,7 +135,7 @@ export default function TwoFactorSection() {
     });
     if (challengeErr || !challenge) {
       setBusy(false);
-      setError(challengeErr ? mapMfaError(challengeErr.message) : 'Le défi a échoué.');
+      setError(challengeErr ? mapMfaError(challengeErr.message) : t('challengeFailed'));
       return;
     }
     const { error: verifyErr } = await supabase.auth.mfa.verify({
@@ -147,8 +149,8 @@ export default function TwoFactorSection() {
       return;
     }
     toast({
-      title: '2FA activée',
-      description: "Votre application TOTP est désormais requise à l'accès admin.",
+      title: t('toastEnabled.title'),
+      description: t('toastEnabled.desc'),
     });
     setEnrollPayload(null);
     setCode('');
@@ -190,7 +192,7 @@ export default function TwoFactorSection() {
     });
     if (challengeErr || !challenge) {
       setBusy(false);
-      setError(challengeErr ? mapMfaError(challengeErr.message) : 'Le défi a échoué.');
+      setError(challengeErr ? mapMfaError(challengeErr.message) : t('challengeFailed'));
       return;
     }
     const { error: verifyErr } = await supabase.auth.mfa.verify({
@@ -212,8 +214,8 @@ export default function TwoFactorSection() {
       return;
     }
     toast({
-      title: '2FA désactivée',
-      description: 'Votre facteur TOTP a été supprimé.',
+      title: t('toastDisabled.title'),
+      description: t('toastDisabled.desc'),
     });
     setActiveFactorId(null);
     setCode('');
@@ -226,19 +228,15 @@ export default function TwoFactorSection() {
     <section id="two-factor" aria-labelledby="two-factor-heading" className="space-y-4">
       <header>
         <h2 id="two-factor-heading" className="text-xl font-bold text-foreground">
-          Authentification à deux facteurs (2FA)
+          {t('heading')}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Ajoute une étape supplémentaire à la connexion : un code à 6 chiffres généré par une
-          application TOTP (Google Authenticator, Authy, 1Password…). L’accès à
-          l’administration la requiert.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">{t('subheading')}</p>
       </header>
 
       <div className="rounded-xl border border-border bg-card p-6 shadow-lg">
         {stage === 'loading' && (
           <p className="text-sm text-muted-foreground" aria-live="polite">
-            Chargement…
+            {t('loading')}
           </p>
         )}
 
@@ -247,11 +245,11 @@ export default function TwoFactorSection() {
             <p className="flex items-center gap-2 text-sm">
               <AlertTriangle aria-hidden="true" className="h-4 w-4 text-yellow-500" />
               <span>
-                État : <strong>Inactive</strong>
+                {t('stateLabel')} <strong>{t('stateInactive')}</strong>
               </span>
             </p>
             <Button type="button" onClick={() => void startEnrollment()} disabled={busy}>
-              {busy ? 'Préparation…' : 'Activer la 2FA'}
+              {busy ? t('preparing') : t('activate')}
             </Button>
             {error && (
               <p className="text-sm text-destructive" role="alert">
@@ -265,17 +263,17 @@ export default function TwoFactorSection() {
           <form onSubmit={(e) => void handleVerifyEnrollment(e)} className="space-y-4">
             <div className="space-y-3">
               <p className="text-sm text-foreground">
-                <strong>1.</strong> Scannez ce QR code avec votre application TOTP.
+                <strong>1.</strong> {t('qrStep1')}
               </p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={enrollPayload.qrCode}
-                alt="QR code à scanner avec votre application TOTP"
+                alt={t('qrAlt')}
                 className="block h-48 w-48 rounded-md border border-border bg-white p-2"
               />
               <details className="text-sm text-muted-foreground">
                 <summary className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                  Impossible de scanner ? Afficher le secret texte
+                  {t('secretToggle')}
                 </summary>
                 <code className="mt-2 block break-all rounded bg-secondary p-2 text-xs">
                   {enrollPayload.secret}
@@ -284,7 +282,7 @@ export default function TwoFactorSection() {
             </div>
             <div className="space-y-2">
               <label htmlFor="enroll-code" className="text-sm font-medium text-foreground">
-                <strong>2.</strong> Saisissez le code à 6 chiffres généré
+                <strong>2.</strong> {t('codeStep2')}
               </label>
               <input
                 id="enroll-code"
@@ -307,10 +305,10 @@ export default function TwoFactorSection() {
             )}
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="submit" disabled={busy || code.length !== 6}>
-                {busy ? 'Vérification…' : 'Vérifier et activer'}
+                {busy ? t('verifying') : t('verifyActivate')}
               </Button>
               <Button type="button" variant="outline" onClick={cancelEnrollment} disabled={busy}>
-                Annuler
+                {t('cancel')}
               </Button>
             </div>
           </form>
@@ -321,21 +319,14 @@ export default function TwoFactorSection() {
             <p className="flex items-center gap-2 text-sm">
               <ShieldCheck aria-hidden="true" className="h-4 w-4 text-green-500" />
               <span>
-                État : <strong>Active</strong>
+                {t('stateLabel')} <strong>{t('stateActive')}</strong>
               </span>
             </p>
-            <p className="text-sm text-muted-foreground">
-              Vous serez invité à saisir un code à 6 chiffres lors de votre prochaine connexion
-              à l’administration.
-            </p>
+            <p className="text-sm text-muted-foreground">{t('activeHint')}</p>
             <Button type="button" variant="outline" onClick={startDisable} disabled={busy}>
-              Désactiver la 2FA
+              {t('disable')}
             </Button>
-            <p className="text-xs text-muted-foreground">
-              En cas de perte de votre appareil TOTP, contactez un autre administrateur — la
-              récupération nécessite une intervention en base (pas de codes de secours
-              intégrés).
-            </p>
+            <p className="text-xs text-muted-foreground">{t('recoveryHint')}</p>
           </div>
         )}
 
@@ -343,23 +334,23 @@ export default function TwoFactorSection() {
           <form onSubmit={(e) => void handleConfirmDisable(e)} className="space-y-4">
             <div role="alert" className={destructiveBoxClass}>
               <p className="mb-1 font-medium leading-none tracking-tight">
-                Confirmer la désactivation
+                {t('confirmDisableHeading')}
               </p>
               <p className="leading-relaxed">
                 {isAdmin ? (
                   <>
-                    En tant qu’administrateur, désactiver la 2FA{' '}
-                    <strong>bloquera votre accès à /admin</strong> jusqu’à ce que vous la
-                    réactiviez. Saisissez votre code TOTP actuel pour confirmer.
+                    {t('confirmDisableAdminBefore')}{' '}
+                    <strong>{t('confirmDisableAdminEmphasis')}</strong>{' '}
+                    {t('confirmDisableAdminAfter')}
                   </>
                 ) : (
-                  <>Saisissez votre code TOTP actuel pour confirmer la désactivation.</>
+                  <>{t('confirmDisableUser')}</>
                 )}
               </p>
             </div>
             <div className="space-y-2">
               <label htmlFor="disable-code" className="text-sm font-medium text-foreground">
-                Code à 6 chiffres
+                {t('disableCodeLabel')}
               </label>
               <input
                 id="disable-code"
@@ -382,10 +373,10 @@ export default function TwoFactorSection() {
             )}
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="submit" variant="destructive" disabled={busy || code.length !== 6}>
-                {busy ? 'Désactivation…' : 'Confirmer la désactivation'}
+                {busy ? t('disabling') : t('confirmDisable')}
               </Button>
               <Button type="button" variant="outline" onClick={cancelDisable} disabled={busy}>
-                Annuler
+                {t('cancel')}
               </Button>
             </div>
           </form>

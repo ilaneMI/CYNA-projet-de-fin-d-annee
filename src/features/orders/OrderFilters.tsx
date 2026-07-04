@@ -1,9 +1,9 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import { useTranslations } from 'next-intl';
 import { Search, X } from 'lucide-react';
 import type { OrderFilters as OrderFiltersValue, OrderStatus } from './types';
-import { ORDER_STATUS_LABEL } from './filtering';
 
 const STATUS_VALUES: (OrderStatus | 'all')[] = ['all', 'pending', 'completed', 'cancelled'];
 
@@ -22,6 +22,8 @@ export default function OrderFilters({
   matchCount,
   onChange,
 }: Props) {
+  const t = useTranslations('orders.filters');
+  const tCard = useTranslations('orderCard');
   const update = <K extends keyof OrderFiltersValue>(key: K, value: OrderFiltersValue[K]) => {
     onChange({ ...filters, [key]: value });
   };
@@ -36,10 +38,10 @@ export default function OrderFilters({
   const handleClearSearch = () => update('search', '');
 
   return (
-    <section aria-label="Filtres de commandes" className="space-y-4">
+    <section aria-label={t('sectionAria')} className="space-y-4">
       <div className="relative">
         <label htmlFor="orders-search" className="sr-only">
-          Rechercher dans les commandes
+          {t('searchLabel')}
         </label>
         <Search
           aria-hidden="true"
@@ -50,14 +52,14 @@ export default function OrderFilters({
           type="search"
           value={filters.search}
           onChange={handleSearch}
-          placeholder="Rechercher par nom ou date…"
+          placeholder={t('searchPlaceholder')}
           className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
         />
         {filters.search.length > 0 && (
           <button
             type="button"
             onClick={handleClearSearch}
-            aria-label="Effacer la recherche"
+            aria-label={t('searchClear')}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <X aria-hidden="true" className="h-3.5 w-3.5" />
@@ -68,7 +70,7 @@ export default function OrderFilters({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <label htmlFor="orders-year" className="mb-1 block text-xs font-medium text-muted-foreground">
-            Année
+            {t('year')}
           </label>
           <select
             id="orders-year"
@@ -76,7 +78,7 @@ export default function OrderFilters({
             onChange={handleYear}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           >
-            <option value="all">Toutes les années</option>
+            <option value="all">{t('yearAll')}</option>
             {availableYears.map((year) => (
               <option key={year} value={String(year)}>
                 {year}
@@ -90,7 +92,7 @@ export default function OrderFilters({
             htmlFor="orders-service"
             className="mb-1 block text-xs font-medium text-muted-foreground"
           >
-            Type de service
+            {t('service')}
           </label>
           <select
             id="orders-service"
@@ -98,7 +100,7 @@ export default function OrderFilters({
             onChange={handleService}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           >
-            <option value="all">Tous les services</option>
+            <option value="all">{t('serviceAll')}</option>
             {availableServices.map((service) => (
               <option key={service} value={service}>
                 {service}
@@ -109,7 +111,7 @@ export default function OrderFilters({
 
         <div>
           <label htmlFor="orders-status" className="mb-1 block text-xs font-medium text-muted-foreground">
-            Statut
+            {t('status')}
           </label>
           <select
             id="orders-status"
@@ -119,7 +121,7 @@ export default function OrderFilters({
           >
             {STATUS_VALUES.map((status) => (
               <option key={status} value={status}>
-                {status === 'all' ? 'Tous les statuts' : ORDER_STATUS_LABEL[status]}
+                {status === 'all' ? t('statusAll') : tCard(`status.${status}`)}
               </option>
             ))}
           </select>
@@ -127,9 +129,7 @@ export default function OrderFilters({
       </div>
 
       <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-        {matchCount === 0
-          ? 'Aucune commande ne correspond aux filtres.'
-          : `${matchCount} commande${matchCount > 1 ? 's' : ''} affichée${matchCount > 1 ? 's' : ''}.`}
+        {t('matchStatus', { count: matchCount })}
       </p>
     </section>
   );

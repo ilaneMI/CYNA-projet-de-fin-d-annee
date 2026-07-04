@@ -1,17 +1,5 @@
 import type { Order, OrderFilters } from './types';
 
-export const ORDER_STATUS_LABEL = {
-  pending: 'En attente',
-  completed: 'Terminée',
-  cancelled: 'Annulée',
-} as const;
-
-export const DURATION_LABEL = {
-  monthly: 'Mensuel',
-  annual: 'Annuel',
-  per_user: 'Par utilisateur',
-} as const;
-
 const matchesYear = (order: Order, year: string): boolean =>
   year === 'all' || String(order.year) === year;
 
@@ -27,6 +15,8 @@ const matchesService = (order: Order, service: string): boolean => {
 const matchesSearch = (order: Order, search: string): boolean => {
   const needle = search.trim().toLowerCase();
   if (!needle) return true;
+  // Order number + product names + both FR and CA date formats — the CA
+  // form gives ISO-ish YYYY-MM-DD tokens without depending on Intl locale.
   const hay = [
     order.orderNumber,
     new Date(order.createdAt).toLocaleDateString('fr-FR'),

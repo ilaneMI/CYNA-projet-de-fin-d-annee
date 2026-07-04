@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
-import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { Link, usePathname, useRouter } from '@/i18n/navigation';
 import { Search, ShoppingCart, User, Menu, X, LogOut } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
+import { isAdmin } from '@/features/admin/guard';
 import { Button } from '@/components/ui/button';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,15 +17,41 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-const navLinks = [
-  { path: '/', label: 'Accueil' },
-  { path: '/catalogue', label: 'Catalogue' },
-  { path: '/tools', label: 'Outils' },
-];
+/**
+ * Header i18n-aware (i18n LOT 1 — E2).
+ *
+ * - `Link` et `usePathname` viennent de `@/i18n/navigation` (next-intl) :
+ *   les hrefs sont donnés SANS préfixe locale, l'ajout se fait
+ *   automatiquement (as-needed → rien pour FR, /en/ pour EN).
+ * - `usePathname` retourne le pathname SANS préfixe locale — donc
+ *   `pathname === '/checkout'` compare correctement que l'URL soit
+ *   '/checkout' ou '/en/checkout'.
+ * - Textes via `useTranslations('nav')` avec fallback FR si EN manque.
+ * - `useNextRouter` pour la recherche : encode la query et push le path
+ *   canonique — next/navigation gère la locale par l'URL courante.
+ */
+
+// Chemins canoniques (sans préfixe locale). Le préfixe est appliqué
+// automatiquement par le Link de next-intl selon la locale courante.
+const NAV_LINKS = [
+  { path: '/', labelKey: 'home' },
+  { path: '/catalogue', labelKey: 'catalogue' },
+  { path: '/tools', labelKey: 'tools' },
+] as const;
+
+const STATIC_BURGER_LINKS = [
+  { path: '/cgu', labelKey: 'cgu' },
+  { path: '/mentions-legales', labelKey: 'mentionsLegales' },
+  { path: '/tools', labelKey: 'contact' },
+  { path: '/a-propos', labelKey: 'about' },
+] as const;
 
 export default function Header() {
+  const t = useTranslations('nav');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // useRouter et usePathname viennent de @/i18n/navigation — la locale
+  // courante est préservée automatiquement sur les push.
   const router = useRouter();
   const pathname = usePathname();
   const { isAuthenticated, currentUser, logout } = useAuth();
@@ -32,7 +60,9 @@ export default function Header() {
   const handleSearch = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
+      // Push via next-intl router : pathname canonique '/search' + query.
+      // La locale courante est préservée (ex : sur /en/… → /en/search?q=…).
+      router.push({ pathname: '/search', query: { q: searchQuery } });
       setSearchQuery('');
       setMobileMenuOpen(false);
     }
@@ -55,8 +85,8 @@ export default function Header() {
             </span>
           </Link>
 
-          <nav className="hidden md:flex items-center space-x-1" aria-label="Navigation principale">
-            {navLinks.map((link) => (
+          <nav className="hidden md:flex items-center space-x-1" aria-label={t('primaryNav')}>
+            {NAV_LINKS.map((link) => (
               <Link
                 key={link.path}
                 href={link.path}
@@ -66,10 +96,10 @@ export default function Header() {
                     : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
                 }`}
               >
-                {link.label}
+                {t(link.labelKey)}
               </Link>
             ))}
-            {currentUser?.email === 'admin@cyna.com' && (
+            {isAdmin(currentUser) && (
               <Link
                 href="/admin"
                 className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
@@ -78,7 +108,7 @@ export default function Header() {
                     : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
                 }`}
               >
-                Admin
+                {t('admin')}
               </Link>
             )}
           </nav>
@@ -90,18 +120,19 @@ export default function Header() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher des produits..."
-                aria-label="Rechercher des produits"
+                placeholder={t('searchPlaceholder')}
+                aria-label={t('search')}
                 className="w-full pl-10 pr-4 py-2 bg-secondary/50 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-300 text-foreground placeholder:text-muted-foreground"
               />
             </div>
           </form>
 
           <div className="flex items-center space-x-4">
+            <LanguageSwitcher />
             <Link
               href="/cart"
               className="relative p-2 hover:bg-secondary rounded-lg transition-all duration-300 text-muted-foreground hover:text-primary"
-              aria-label="Panier"
+              aria-label={t('cartLabel')}
             >
               <ShoppingCart className="w-6 h-6" />
               {getCartItemCount() > 0 && (
@@ -117,22 +148,24 @@ export default function Header() {
                   <Button
                     variant="ghost"
                     className="p-2 hover:bg-secondary rounded-lg text-muted-foreground hover:text-primary"
-                    aria-label="Menu utilisateur"
+                    aria-label={t('userMenu')}
                   >
                     <User className="w-6 h-6" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56 bg-popover border-border">
                   <div className="px-2 py-2">
-                    <p className="text-sm font-medium text-foreground">{currentUser?.full_name || 'Utilisateur'}</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {currentUser?.full_name || t('userDefault')}
+                    </p>
                     <p className="text-xs text-muted-foreground">{currentUser?.email}</p>
                   </div>
                   <DropdownMenuSeparator className="bg-border" />
                   <DropdownMenuItem asChild className="focus:bg-secondary focus:text-primary">
-                    <Link href="/my-account" className="cursor-pointer">Mon Compte</Link>
+                    <Link href="/my-account" className="cursor-pointer">{t('myAccount')}</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild className="focus:bg-secondary focus:text-primary">
-                    <Link href="/orders" className="cursor-pointer">Historique des Commandes</Link>
+                    <Link href="/orders" className="cursor-pointer">{t('orders')}</Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-border" />
                   <DropdownMenuItem
@@ -140,14 +173,14 @@ export default function Header() {
                     className="cursor-pointer text-destructive focus:bg-destructive/10"
                   >
                     <LogOut className="w-4 h-4 mr-2" />
-                    Déconnexion
+                    {t('logout')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
               <Link href="/login">
                 <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                  Connexion / Inscription
+                  {t('loginRegister')}
                 </Button>
               </Link>
             )}
@@ -155,7 +188,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label={mobileMenuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+              aria-label={mobileMenuOpen ? t('menuClose') : t('menuOpen')}
               aria-expanded={mobileMenuOpen}
               className="md:hidden p-2 hover:bg-secondary rounded-lg transition-all duration-300 text-muted-foreground"
             >
@@ -173,15 +206,15 @@ export default function Header() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Rechercher..."
-                  aria-label="Rechercher des produits"
+                  placeholder={t('searchPlaceholderShort')}
+                  aria-label={t('search')}
                   className="w-full pl-10 pr-4 py-2 bg-secondary/50 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                 />
               </div>
             </form>
 
-            <nav className="flex flex-col space-y-2" aria-label="Navigation mobile">
-              {navLinks.map((link) => (
+            <nav className="flex flex-col space-y-2" aria-label={t('mobileNav')}>
+              {NAV_LINKS.map((link) => (
                 <Link
                   key={link.path}
                   href={link.path}
@@ -192,10 +225,10 @@ export default function Header() {
                       : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
                   }`}
                 >
-                  {link.label}
+                  {t(link.labelKey)}
                 </Link>
               ))}
-              {currentUser?.email === 'admin@cyna.com' && (
+              {isAdmin(currentUser) && (
                 <Link
                   href="/admin"
                   onClick={() => setMobileMenuOpen(false)}
@@ -205,9 +238,89 @@ export default function Header() {
                       : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
                   }`}
                 >
-                  Admin
+                  {t('admin')}
                 </Link>
               )}
+
+              <div className="my-2 border-t border-border" role="separator" aria-hidden="true" />
+              {isAuthenticated ? (
+                <>
+                  <Link
+                    href="/my-account"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                      isActivePath('/my-account')
+                        ? 'text-primary bg-secondary'
+                        : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
+                    }`}
+                  >
+                    {t('myAccountShort')}
+                  </Link>
+                  <Link
+                    href="/orders"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                      isActivePath('/orders')
+                        ? 'text-primary bg-secondary'
+                        : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
+                    }`}
+                  >
+                    {t('myOrders')}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      void handleLogout();
+                    }}
+                    className="flex items-center px-4 py-2 rounded-lg font-medium text-destructive hover:bg-destructive/10 transition-all duration-300 text-left"
+                  >
+                    <LogOut aria-hidden="true" className="w-4 h-4 mr-2" />
+                    {t('logout')}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                      isActivePath('/login')
+                        ? 'text-primary bg-secondary'
+                        : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
+                    }`}
+                  >
+                    {t('login')}
+                  </Link>
+                  <Link
+                    href="/register"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                      isActivePath('/register')
+                        ? 'text-primary bg-secondary'
+                        : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
+                    }`}
+                  >
+                    {t('register')}
+                  </Link>
+                </>
+              )}
+
+              <div className="my-2 border-t border-border" role="separator" aria-hidden="true" />
+              {STATIC_BURGER_LINKS.map((link) => (
+                <Link
+                  key={`${link.path}-${link.labelKey}`}
+                  href={link.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`px-4 py-2 rounded-lg text-sm transition-all duration-300 ${
+                    isActivePath(link.path)
+                      ? 'text-primary bg-secondary'
+                      : 'text-muted-foreground hover:text-primary hover:bg-secondary/50'
+                  }`}
+                >
+                  {t(link.labelKey)}
+                </Link>
+              ))}
             </nav>
           </div>
         )}

@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useTranslations } from 'next-intl';
 import { MapPin, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import {
   createAddress,
   deleteAddress as deleteAddressInDb,
@@ -18,7 +20,6 @@ type FieldName = keyof Omit<Address, 'id' | 'isDefault'>;
 
 type FieldSpec = {
   name: FieldName;
-  label: string;
   type: 'text' | 'tel';
   autoComplete: string;
   required: boolean;
@@ -26,39 +27,43 @@ type FieldSpec = {
 };
 
 const FIELDS: FieldSpec[] = [
-  { name: 'label', label: 'Étiquette (ex. Domicile)', type: 'text', autoComplete: 'off', required: true, full: true },
-  { name: 'firstName', label: 'Prénom', type: 'text', autoComplete: 'given-name', required: true, full: false },
-  { name: 'lastName', label: 'Nom', type: 'text', autoComplete: 'family-name', required: true, full: false },
-  { name: 'address1', label: 'Adresse 1', type: 'text', autoComplete: 'address-line1', required: true, full: true },
-  { name: 'address2', label: 'Adresse 2 (optionnel)', type: 'text', autoComplete: 'address-line2', required: false, full: true },
-  { name: 'city', label: 'Ville', type: 'text', autoComplete: 'address-level2', required: true, full: false },
-  { name: 'region', label: 'Région', type: 'text', autoComplete: 'address-level1', required: true, full: false },
-  { name: 'postalCode', label: 'Code postal', type: 'text', autoComplete: 'postal-code', required: true, full: false },
-  { name: 'country', label: 'Pays', type: 'text', autoComplete: 'country-name', required: true, full: false },
-  { name: 'phone', label: 'Téléphone', type: 'tel', autoComplete: 'tel', required: true, full: true },
+  { name: 'label', type: 'text', autoComplete: 'off', required: true, full: true },
+  { name: 'firstName', type: 'text', autoComplete: 'given-name', required: true, full: false },
+  { name: 'lastName', type: 'text', autoComplete: 'family-name', required: true, full: false },
+  { name: 'address1', type: 'text', autoComplete: 'address-line1', required: true, full: true },
+  { name: 'address2', type: 'text', autoComplete: 'address-line2', required: false, full: true },
+  { name: 'city', type: 'text', autoComplete: 'address-level2', required: true, full: false },
+  { name: 'region', type: 'text', autoComplete: 'address-level1', required: true, full: false },
+  { name: 'postalCode', type: 'text', autoComplete: 'postal-code', required: true, full: false },
+  { name: 'country', type: 'text', autoComplete: 'country-name', required: true, full: false },
+  { name: 'phone', type: 'tel', autoComplete: 'tel', required: true, full: true },
 ];
 
 const POSTAL_REGEX = /^[A-Za-z0-9 \-]{3,10}$/;
 const PHONE_REGEX = /^[+]?[\d\s()./-]{6,}$/;
 
+/**
+ * i18n LOT 1 — validation returns i18n message KEYS (relative to the
+ * `account.addresses` namespace) rather than pre-formatted French strings.
+ */
 const validateAddress = (address: Address): AddressErrors => {
   const errors: AddressErrors = {};
-  if (!address.label.trim()) errors.label = "L'étiquette est requise.";
-  if (!address.firstName.trim()) errors.firstName = 'Le prénom est requis.';
-  if (!address.lastName.trim()) errors.lastName = 'Le nom est requis.';
-  if (!address.address1.trim()) errors.address1 = "L'adresse est requise.";
-  if (!address.city.trim()) errors.city = 'La ville est requise.';
-  if (!address.region.trim()) errors.region = 'La région est requise.';
+  if (!address.label.trim()) errors.label = 'errors.labelRequired';
+  if (!address.firstName.trim()) errors.firstName = 'errors.firstNameRequired';
+  if (!address.lastName.trim()) errors.lastName = 'errors.lastNameRequired';
+  if (!address.address1.trim()) errors.address1 = 'errors.address1Required';
+  if (!address.city.trim()) errors.city = 'errors.cityRequired';
+  if (!address.region.trim()) errors.region = 'errors.regionRequired';
   if (!address.postalCode.trim()) {
-    errors.postalCode = 'Le code postal est requis.';
+    errors.postalCode = 'errors.postalCodeRequired';
   } else if (!POSTAL_REGEX.test(address.postalCode.trim())) {
-    errors.postalCode = 'Code postal invalide.';
+    errors.postalCode = 'errors.postalCodeInvalid';
   }
-  if (!address.country.trim()) errors.country = 'Le pays est requis.';
+  if (!address.country.trim()) errors.country = 'errors.countryRequired';
   if (!address.phone.trim()) {
-    errors.phone = 'Le téléphone est requis.';
+    errors.phone = 'errors.phoneRequired';
   } else if (!PHONE_REGEX.test(address.phone.trim())) {
-    errors.phone = 'Numéro de téléphone invalide.';
+    errors.phone = 'errors.phoneInvalid';
   }
   return errors;
 };
@@ -85,6 +90,7 @@ const emptyDraft = (): Address => ({
 });
 
 export default function AddressBookSection() {
+  const t = useTranslations('account.addresses');
   const { currentUser } = useAuth();
   const { toast } = useToast();
   const [hydrated, setHydrated] = useState(false);
@@ -93,6 +99,10 @@ export default function AddressBookSection() {
   const [touched, setTouched] = useState<Partial<Record<FieldName, boolean>>>({});
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
+  // ANO-005 : cible courante du ConfirmDialog. La suppression ne part
+  // qu'après confirmation explicite (cohérence avec les suppressions du
+  // backoffice — même composant accessible Radix + focus trap + ESC).
+  const [pendingDelete, setPendingDelete] = useState<Address | null>(null);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -105,8 +115,8 @@ export default function AddressBookSection() {
       } catch (err) {
         if (cancelled) return;
         toast({
-          title: 'Impossible de charger vos adresses',
-          description: err instanceof Error ? err.message : 'Erreur inconnue',
+          title: t('loadErrorTitle'),
+          description: err instanceof Error ? err.message : t('unknownError'),
           variant: 'destructive',
         });
       } finally {
@@ -116,7 +126,7 @@ export default function AddressBookSection() {
     return () => {
       cancelled = true;
     };
-  }, [currentUser, toast]);
+  }, [currentUser, toast, t]);
 
   const errors = useMemo<AddressErrors>(
     () => (draft ? validateAddress(draft) : {}),
@@ -178,13 +188,13 @@ export default function AddressBookSection() {
       setDraft(null);
       setTouched({});
       toast({
-        title: 'Adresse enregistrée',
-        description: `L'étiquette « ${saved.label} » a été enregistrée.`,
+        title: t('saveSuccessTitle'),
+        description: t('saveSuccessDesc', { label: saved.label }),
       });
     } catch (err) {
       toast({
-        title: "Échec de l'enregistrement",
-        description: err instanceof Error ? err.message : 'Erreur inconnue',
+        title: t('saveFailedTitle'),
+        description: err instanceof Error ? err.message : t('unknownError'),
         variant: 'destructive',
       });
     } finally {
@@ -192,18 +202,20 @@ export default function AddressBookSection() {
     }
   };
 
-  const handleDelete = async (address: Address) => {
+  // ANO-005 : la suppression part UNIQUEMENT après confirmation. Le
+  // bouton 🗑️ ouvre le dialog ; la fonction ci-dessous est appelée
+  // depuis le `onConfirm` du ConfirmDialog.
+  const performDelete = async (address: Address) => {
     if (!currentUser) return;
-    if (!window.confirm(`Supprimer l'adresse « ${address.label} » ?`)) return;
     setBusy(true);
     try {
       await deleteAddressInDb(currentUser.id, address.id);
       setAddresses((prev) => prev.filter((a) => a.id !== address.id));
-      toast({ title: 'Adresse supprimée', description: address.label });
+      toast({ title: t('deleteSuccessTitle'), description: address.label });
     } catch (err) {
       toast({
-        title: 'Échec de la suppression',
-        description: err instanceof Error ? err.message : 'Erreur inconnue',
+        title: t('deleteFailedTitle'),
+        description: err instanceof Error ? err.message : t('unknownError'),
         variant: 'destructive',
       });
     } finally {
@@ -221,13 +233,13 @@ export default function AddressBookSection() {
         prev.map((a) => ({ ...a, isDefault: a.id === address.id })),
       );
       toast({
-        title: 'Adresse par défaut mise à jour',
-        description: `« ${address.label} » est maintenant l'adresse par défaut.`,
+        title: t('setDefaultSuccessTitle'),
+        description: t('setDefaultSuccessDesc', { label: address.label }),
       });
     } catch (err) {
       toast({
-        title: 'Échec de la mise à jour',
-        description: err instanceof Error ? err.message : 'Erreur inconnue',
+        title: t('setDefaultFailedTitle'),
+        description: err instanceof Error ? err.message : t('unknownError'),
         variant: 'destructive',
       });
     } finally {
@@ -244,16 +256,14 @@ export default function AddressBookSection() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 id="addresses-heading" className="text-xl font-bold text-foreground sm:text-2xl">
-            Carnet d&apos;adresses
+            {t('heading')}
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Enregistrez vos adresses pour les retrouver au moment de la commande.
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{t('subheading')}</p>
         </div>
         {!draft && (
           <Button type="button" onClick={handleStartCreate} aria-controls="address-form" disabled={busy}>
             <Plus aria-hidden="true" className="mr-2 h-4 w-4" />
-            Ajouter une adresse
+            {t('add')}
           </Button>
         )}
       </header>
@@ -267,9 +277,7 @@ export default function AddressBookSection() {
       ) : addresses.length === 0 && !draft ? (
         <div className="rounded-lg border border-dashed border-border bg-card/40 p-8 text-center">
           <MapPin aria-hidden="true" className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-          <p className="text-muted-foreground">
-            Aucune adresse enregistrée pour le moment.
-          </p>
+          <p className="text-muted-foreground">{t('emptyState')}</p>
         </div>
       ) : (
         <ul role="list" className="space-y-3">
@@ -284,7 +292,7 @@ export default function AddressBookSection() {
                   {address.isDefault && (
                     <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                       <Star aria-hidden="true" className="h-3 w-3" />
-                      Par défaut
+                      {t('defaultBadge')}
                     </span>
                   )}
                 </p>
@@ -306,11 +314,11 @@ export default function AddressBookSection() {
                     variant="outline"
                     size="sm"
                     onClick={() => void handleSetDefault(address)}
-                    aria-label={`Définir l'adresse ${address.label} comme adresse par défaut`}
+                    aria-label={t('setDefaultAria', { label: address.label })}
                     disabled={busy}
                   >
                     <Star aria-hidden="true" className="mr-1 h-4 w-4" />
-                    Définir par défaut
+                    {t('setDefault')}
                   </Button>
                 )}
                 <Button
@@ -318,23 +326,23 @@ export default function AddressBookSection() {
                   variant="outline"
                   size="sm"
                   onClick={() => handleStartEdit(address)}
-                  aria-label={`Modifier l'adresse ${address.label}`}
+                  aria-label={t('editAria', { label: address.label })}
                   disabled={busy}
                 >
                   <Pencil aria-hidden="true" className="mr-1 h-4 w-4" />
-                  Modifier
+                  {t('edit')}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => void handleDelete(address)}
-                  aria-label={`Supprimer l'adresse ${address.label}`}
+                  onClick={() => setPendingDelete(address)}
+                  aria-label={t('deleteAria', { label: address.label })}
                   disabled={busy}
                   className="border-destructive/50 text-destructive hover:bg-destructive/10"
                 >
                   <Trash2 aria-hidden="true" className="mr-1 h-4 w-4" />
-                  Supprimer
+                  {t('delete')}
                 </Button>
               </div>
             </li>
@@ -347,20 +355,21 @@ export default function AddressBookSection() {
           id="address-form"
           onSubmit={(e) => void handleSubmit(e)}
           noValidate
-          aria-label="Formulaire d'adresse"
+          aria-label={t('formAria')}
           className="rounded-lg border border-border bg-card p-6 shadow-sm"
         >
           <h3 className="mb-4 text-lg font-semibold text-foreground">
-            {draft.id ? 'Modifier l’adresse' : 'Nouvelle adresse'}
+            {draft.id ? t('editTitle') : t('newTitle')}
           </h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {FIELDS.map((field) => {
               const errorId = `address-${field.name}-error`;
-              const showError = (touched[field.name] || submitted) && Boolean(errors[field.name]);
+              const errorKey = errors[field.name];
+              const showError = (touched[field.name] || submitted) && Boolean(errorKey);
               return (
                 <div key={field.name} className={field.full ? 'sm:col-span-2' : undefined}>
                   <label htmlFor={`address-${field.name}`} className="mb-1 block text-sm font-medium text-foreground">
-                    {field.label}
+                    {t(`fields.${field.name}`)}
                     {field.required && (
                       <span aria-hidden="true" className="ml-0.5 text-destructive">
                         *
@@ -380,9 +389,9 @@ export default function AddressBookSection() {
                     aria-describedby={showError ? errorId : undefined}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
-                  {showError && (
+                  {showError && errorKey && (
                     <p id={errorId} role="alert" className="mt-1 text-sm text-destructive">
-                      {errors[field.name]}
+                      {t(errorKey)}
                     </p>
                   )}
                 </div>
@@ -396,10 +405,10 @@ export default function AddressBookSection() {
               aria-live="polite"
               className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
             >
-              <p className="mb-2 font-semibold">Veuillez corriger les erreurs suivantes :</p>
+              <p className="mb-2 font-semibold">{t('errorSummary')}</p>
               <ul className="list-inside list-disc space-y-1">
-                {summaryErrors.map(([name, message]) => (
-                  <li key={name}>{message}</li>
+                {summaryErrors.map(([name, messageKey]) => (
+                  <li key={name}>{t(messageKey)}</li>
                 ))}
               </ul>
             </div>
@@ -407,14 +416,31 @@ export default function AddressBookSection() {
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Button type="button" variant="outline" onClick={handleCancel} className="sm:flex-1" disabled={busy}>
-              Annuler
+              {t('cancel')}
             </Button>
             <Button type="submit" className="sm:flex-1" disabled={busy}>
-              {busy ? 'Enregistrement…' : 'Enregistrer'}
+              {busy ? t('saving') : t('save')}
             </Button>
           </div>
         </form>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={t('confirmDeleteTitle', { label: pendingDelete?.label ?? '' })}
+        description={t('confirmDeleteBody')}
+        confirmLabel={t('confirmDeleteConfirm')}
+        cancelLabel={t('confirmDeleteCancel')}
+        variant="destructive"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) {
+            const target = pendingDelete;
+            setPendingDelete(null);
+            void performDelete(target);
+          }
+        }}
+      />
     </section>
   );
 }

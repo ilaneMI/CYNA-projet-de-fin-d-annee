@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import type { Order } from './types';
 import OrderCard from './OrderCard';
 import { groupOrdersByYear } from './filtering';
@@ -7,6 +8,7 @@ import { groupOrdersByYear } from './filtering';
 type Props = { orders: Order[] };
 
 export default function OrdersGroupedList({ orders }: Props) {
+  const t = useTranslations('orders');
   const groups = groupOrdersByYear(orders);
 
   return (
@@ -19,7 +21,7 @@ export default function OrdersGroupedList({ orders }: Props) {
           >
             {year}
             <span className="ml-2 text-sm font-normal text-muted-foreground">
-              ({yearOrders.length} commande{yearOrders.length > 1 ? 's' : ''})
+              {t('yearGroupCount', { count: yearOrders.length })}
             </span>
           </h2>
           <ul role="list" className="space-y-3">

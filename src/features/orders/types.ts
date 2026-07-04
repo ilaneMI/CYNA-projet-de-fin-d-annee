@@ -24,6 +24,9 @@ export type OrderItem = {
 };
 
 export type Order = {
+  /** UUID Supabase. Required for any route call that targets an order (invoice
+   * download, etc.). Le orderNumber reste l'identifiant affiché à l'utilisateur. */
+  id: string;
   orderNumber: string;
   /** ISO date string. */
   createdAt: string;
