@@ -34,3 +34,11 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# fichiers locaux / temporaires
+.tmp-*
+.version
+
+# documents école (bruts, hors repo)
+*.pdf
+*.docx
