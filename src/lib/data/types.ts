@@ -9,6 +9,15 @@
 
 export type StockStatus = 'En Stock' | 'Limité' | 'Rupture de Stock';
 
+export type ProductImage = {
+  url: string;
+  /** Alt text already résolu vers la locale courante (fr pour l'instant).
+   *  Null/undefined → le composant carrousel retombera sur un alt par défaut
+   *  basé sur le nom du produit. */
+  alt?: string | null;
+  position: number;
+};
+
 export type Category = {
   id: string;
   name: string;
@@ -28,7 +37,14 @@ export type Product = {
   price_annual: number;
   price_per_user: number;
   category_id: string;
+  /** Image principale (= product_images de plus faible position). Conservé
+   *  pour rétro-compat (catalogue, cart, ProductCard, etc.). Pour la
+   *  galerie complète, voir `images`. */
   image_url: string;
+  /** Galerie complète triée par `position` ASC. Vide si aucune image en
+   *  base. Lu par le carrousel de la page produit ; les autres surfaces
+   *  utilisent `image_url`. */
+  images: ProductImage[];
   stock_status: StockStatus;
   technical_specs: Record<string, string>;
   /** Higher first. Defaults to 0 when absent. */

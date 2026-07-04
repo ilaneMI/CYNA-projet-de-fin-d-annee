@@ -4,10 +4,12 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
 } from 'react';
+import { useTranslations } from 'next-intl';
 import { Bot, MessageCircle, Send, User, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ChatMessage } from './types';
@@ -17,61 +19,21 @@ import type { ChatMessage } from './types';
 // only — no API call, no AI integration, no remote dependency. The canned
 // responses live here so the page is walkable in demos without surprising
 // anyone with an unmoderated LLM.
-const CANNED_FAQ: { match: RegExp; answer: string }[] = [
-  {
-    match: /\bsoc\b/i,
-    answer:
-      'Le SOC (Security Operations Center) est une équipe et une plateforme qui surveillent vos systèmes 24/7 et réagissent aux incidents.',
-  },
-  {
-    match: /\bedr\b/i,
-    answer:
-      "L'EDR (Endpoint Detection & Response) protège vos postes et serveurs : détection comportementale, isolation, remédiation.",
-  },
-  {
-    match: /\bxdr\b/i,
-    answer:
-      "Le XDR corrèle les signaux de plusieurs surfaces (endpoint, réseau, cloud, identité) pour une détection plus contextuelle.",
-  },
-  {
-    match: /(prix|tarif|pricing|cout)/i,
-    answer:
-      "Chaque service propose mensuel, annuel et par utilisateur. Le détail est sur la fiche produit du catalogue.",
-  },
-  {
-    match: /(facture|invoice)/i,
-    answer:
-      "Les factures sont disponibles dans /orders. Le téléchargement PDF arrive avec le branchement Supabase.",
-  },
+type FaqKey = 'soc' | 'edr' | 'xdr' | 'pricing' | 'invoice';
+
+const FAQ_PATTERNS: { match: RegExp; key: FaqKey }[] = [
+  { match: /\bsoc\b/i, key: 'soc' },
+  { match: /\bedr\b/i, key: 'edr' },
+  { match: /\bxdr\b/i, key: 'xdr' },
+  { match: /(prix|tarif|pricing|cout|cost|price)/i, key: 'pricing' },
+  { match: /(facture|invoice)/i, key: 'invoice' },
 ];
-
-const SUGGESTIONS = [
-  "Qu'est-ce que le SOC ?",
-  "Comment activer l'EDR ?",
-  'Quelles sont les options de tarification ?',
-];
-
-const DEFAULT_ANSWER =
-  "Je n'ai pas la réponse exacte. Un agent vous répondra rapidement — utilisez le formulaire de contact à gauche pour décrire votre besoin.";
-
-const greetingMessage = (): ChatMessage => ({
-  id: `bot-${Date.now()}`,
-  role: 'bot',
-  content:
-    "Bonjour ! Je suis l'assistant Cyna. Je peux répondre à quelques questions courantes. Pour un cas précis, ouvrez un ticket via le formulaire.",
-});
-
-const findCannedAnswer = (input: string): string => {
-  for (const entry of CANNED_FAQ) {
-    if (entry.match.test(input)) return entry.answer;
-  }
-  return DEFAULT_ANSWER;
-};
 
 const generateId = (role: 'user' | 'bot') =>
   `${role}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
 export default function ChatbotShell() {
+  const t = useTranslations('contact.chatbot');
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -83,6 +45,30 @@ export default function ChatbotShell() {
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const dialogTitleId = useId();
 
+  const suggestions = useMemo(
+    () => [t('suggestions.soc'), t('suggestions.edr'), t('suggestions.pricing')],
+    [t],
+  );
+
+  const greetingMessage = useCallback(
+    (): ChatMessage => ({
+      id: `bot-${Date.now()}`,
+      role: 'bot',
+      content: t('greeting'),
+    }),
+    [t],
+  );
+
+  const findCannedAnswer = useCallback(
+    (userInput: string): string => {
+      for (const entry of FAQ_PATTERNS) {
+        if (entry.match.test(userInput)) return t(`faq.${entry.key}`);
+      }
+      return t('defaultAnswer');
+    },
+    [t],
+  );
+
   const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
@@ -92,7 +78,7 @@ export default function ChatbotShell() {
     // Defer focus until the dialog has actually rendered.
     const timer = window.setTimeout(() => inputRef.current?.focus(), 30);
     return () => window.clearTimeout(timer);
-  }, [open]);
+  }, [open, greetingMessage]);
 
   useEffect(() => {
     if (open) return;
@@ -144,23 +130,20 @@ export default function ChatbotShell() {
     >
       <header className="mb-4">
         <h2 id="chatbot-section-heading" className="text-xl font-bold text-foreground sm:text-2xl">
-          Assistant en ligne
+          {t('sectionHeading')}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Une question rapide ? Démarrez une discussion avec l&apos;assistant. Pour un cas précis,
-          le formulaire de contact reste la voie la plus sûre.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">{t('sectionSubheading')}</p>
       </header>
 
       <ul className="mb-6 space-y-2 text-sm text-muted-foreground">
-        <li>· Disponible côté UI uniquement pour le moment.</li>
-        <li>· Réponses prédéfinies sur SOC / EDR / XDR et tarifs.</li>
-        <li>· L&apos;escalade vers un agent humain passe par le formulaire.</li>
+        <li>{t('bullet1')}</li>
+        <li>{t('bullet2')}</li>
+        <li>{t('bullet3')}</li>
       </ul>
 
       <Button ref={triggerRef} type="button" onClick={() => setOpen(true)} className="w-full sm:w-auto">
         <MessageCircle aria-hidden="true" className="mr-2 h-4 w-4" />
-        Contact me
+        {t('cta')}
       </Button>
 
       {open && (
@@ -172,7 +155,7 @@ export default function ChatbotShell() {
               the explicit close button. */}
           <button
             type="button"
-            aria-label="Fermer la fenêtre de discussion"
+            aria-label={t('closeOverlay')}
             onClick={close}
             className="absolute inset-0 cursor-default"
             tabIndex={-1}
@@ -188,13 +171,13 @@ export default function ChatbotShell() {
               <div className="flex items-center gap-2">
                 <Bot aria-hidden="true" className="h-5 w-5 text-primary" />
                 <h3 id={dialogTitleId} className="text-base font-semibold text-foreground">
-                  Assistant Cyna
+                  {t('dialogTitle')}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={close}
-                aria-label="Fermer la discussion"
+                aria-label={t('closeButton')}
                 className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <X aria-hidden="true" className="h-4 w-4" />
@@ -226,7 +209,7 @@ export default function ChatbotShell() {
                           : 'border border-border bg-card text-foreground'
                       }`}
                     >
-                      <span className="sr-only">{isUser ? 'Vous : ' : 'Assistant : '}</span>
+                      <span className="sr-only">{isUser ? t('srUserPrefix') : t('srBotPrefix')}</span>
                       {message.content}
                     </div>
                     {isUser && (
@@ -241,9 +224,9 @@ export default function ChatbotShell() {
             </ol>
 
             <div className="border-t border-border bg-card px-4 py-3">
-              <p className="mb-2 text-xs text-muted-foreground">Suggestions :</p>
+              <p className="mb-2 text-xs text-muted-foreground">{t('suggestionsLabel')}</p>
               <div className="mb-3 flex flex-wrap gap-2">
-                {SUGGESTIONS.map((suggestion) => (
+                {suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
@@ -257,7 +240,7 @@ export default function ChatbotShell() {
 
               <form onSubmit={handleSubmit} className="flex items-center gap-2">
                 <label htmlFor="chatbot-input" className="sr-only">
-                  Votre message
+                  {t('inputLabel')}
                 </label>
                 <input
                   ref={inputRef}
@@ -265,10 +248,10 @@ export default function ChatbotShell() {
                   type="text"
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  placeholder="Tapez votre question…"
+                  placeholder={t('inputPlaceholder')}
                   className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
-                <Button type="submit" size="sm" aria-label="Envoyer le message" disabled={input.trim().length === 0}>
+                <Button type="submit" size="sm" aria-label={t('sendLabel')} disabled={input.trim().length === 0}>
                   <Send aria-hidden="true" className="h-4 w-4" />
                 </Button>
               </form>

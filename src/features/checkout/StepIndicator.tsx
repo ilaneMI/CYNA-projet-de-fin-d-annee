@@ -1,23 +1,33 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
 import type { CheckoutStep } from './types';
 
-const STEPS: { number: CheckoutStep; title: string }[] = [
-  { number: 1, title: 'Authentification' },
-  { number: 2, title: 'Facturation' },
-  { number: 3, title: 'Paiement' },
-  { number: 4, title: 'Confirmation' },
+type StepConfig = { number: CheckoutStep; titleKey: 'step1' | 'step2' | 'step3' | 'step4' };
+
+const STEPS: StepConfig[] = [
+  { number: 1, titleKey: 'step1' },
+  { number: 2, titleKey: 'step2' },
+  { number: 3, titleKey: 'step3' },
+  { number: 4, titleKey: 'step4' },
 ];
 
 type Props = { current: CheckoutStep };
 
 export default function StepIndicator({ current }: Props) {
+  const t = useTranslations('checkout.steps');
   return (
-    <ol aria-label="Étapes du paiement" className="flex items-center">
+    <ol aria-label={t('aria')} className="flex items-center">
       {STEPS.map((step, index) => {
         const isComplete = current > step.number;
         const isCurrent = current === step.number;
+        const title = t(step.titleKey);
+        const prefix = isComplete
+          ? t('completedPrefix')
+          : isCurrent
+            ? t('currentPrefix')
+            : t('futurePrefix');
         return (
           <li
             key={step.number}
@@ -36,7 +46,7 @@ export default function StepIndicator({ current }: Props) {
               >
                 {isComplete ? <Check aria-hidden="true" className="h-5 w-5" /> : step.number}
                 <span className="sr-only">
-                  {isComplete ? 'Étape terminée :' : isCurrent ? 'Étape en cours :' : 'Étape :'} {step.title}
+                  {prefix} {title}
                 </span>
               </div>
               <span
@@ -44,7 +54,7 @@ export default function StepIndicator({ current }: Props) {
                   isCurrent ? 'font-semibold text-foreground' : 'text-muted-foreground'
                 }`}
               >
-                {step.title}
+                {title}
               </span>
             </div>
             {index < STEPS.length - 1 && (

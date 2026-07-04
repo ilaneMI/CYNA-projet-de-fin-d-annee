@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import Pagination from '@/components/Pagination';
+
+const PAGE_SIZE = 10;
 
 /**
  * Admin orders table.
@@ -103,6 +106,21 @@ export default function OrdersAdminSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  // Pagination locale après le tri serveur (order by created_at desc).
+  // Pas de tri/filtre client ici, donc rien à reset à part la longueur
+  // de la liste après un reload éventuel.
+  const totalPages = Math.max(1, Math.ceil(orders.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedOrders = useMemo(
+    () => orders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [orders, safePage],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [orders.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,7 +191,7 @@ export default function OrdersAdminSection() {
                 </td>
               </tr>
             )}
-            {!loading && !error && orders.map((order) => {
+            {!loading && !error && pagedOrders.map((order) => {
               const expanded = expandedId === order.id;
               const toggle = () => setExpandedId(expanded ? null : order.id);
               return (
@@ -183,6 +201,21 @@ export default function OrdersAdminSection() {
           </tbody>
         </table>
       </div>
+
+      {!loading && !error && totalPages > 1 && (
+        <div className="flex flex-col items-center gap-2 pt-2">
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            ariaLabel="Pagination du tableau des commandes"
+          />
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            Page {safePage} sur {totalPages} · {orders.length} commande
+            {orders.length > 1 ? 's' : ''}
+          </p>
+        </div>
+      )}
     </section>
   );
 }

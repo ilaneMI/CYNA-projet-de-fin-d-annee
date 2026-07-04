@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { useRouter } from '@/i18n/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useToast } from '@/components/ui/use-toast';
@@ -30,6 +31,12 @@ import type { BillingAddress, CheckoutStep } from './types';
  * (`checkout.session.completed` → `place_order_for_user`), NOT by this
  * button. The Lot C `place_order()` RPC is no longer reachable from a
  * client session (cf. migration 20260619200000).
+ *
+ * i18n LOT 1 — Router imported from `@/i18n/navigation` so that all
+ * `.replace('/login')` and `.replace('/cart')` calls preserve the active
+ * locale prefix. Stripe redirect (`window.location.assign`) is unchanged:
+ * the URL Stripe returns is absolute and points to /checkout/success
+ * (Stripe's success_url), and next-intl doesn't govern external redirects.
  */
 
 const splitFullName = (fullName?: string): { firstName: string; lastName: string } => {
@@ -39,15 +46,19 @@ const splitFullName = (fullName?: string): { firstName: string; lastName: string
   return { firstName: firstName ?? '', lastName: rest.join(' ') };
 };
 
-const FlowSkeleton = () => (
-  <div className="space-y-6" aria-busy="true" aria-live="polite">
-    <div className="h-12 animate-pulse rounded-md border border-border bg-card/40" aria-hidden="true" />
-    <div className="h-64 animate-pulse rounded-md border border-border bg-card/40" aria-hidden="true" />
-    <span className="sr-only">Chargement du tunnel de paiement…</span>
-  </div>
-);
+const FlowSkeleton = () => {
+  const t = useTranslations('checkout');
+  return (
+    <div className="space-y-6" aria-busy="true" aria-live="polite">
+      <div className="h-12 animate-pulse rounded-md border border-border bg-card/40" aria-hidden="true" />
+      <div className="h-64 animate-pulse rounded-md border border-border bg-card/40" aria-hidden="true" />
+      <span className="sr-only">{t('skeletonSr')}</span>
+    </div>
+  );
+};
 
 export default function CheckoutFlow() {
+  const t = useTranslations('checkout');
   const router = useRouter();
   const { cartItems, hydrated } = useCart();
   const { isAuthenticated, currentUser, loading } = useAuth();
@@ -66,7 +77,7 @@ export default function CheckoutFlow() {
   useEffect(() => {
     if (loading) return;
     if (!isAuthenticated) {
-      router.replace('/login?from=%2Fcheckout');
+      router.replace({ pathname: '/login', query: { from: '/checkout' } });
     }
   }, [loading, isAuthenticated, router]);
 
@@ -132,8 +143,8 @@ export default function CheckoutFlow() {
       window.location.assign(payload.url);
     } catch (err) {
       toast({
-        title: 'Impossible de joindre Stripe',
-        description: err instanceof Error ? err.message : 'Erreur inconnue',
+        title: t('errorToast.title'),
+        description: err instanceof Error ? err.message : t('errorToast.unknown'),
         variant: 'destructive',
       });
       setRedirecting(false);
@@ -171,7 +182,7 @@ export default function CheckoutFlow() {
 
       {redirecting && (
         <p className="text-center text-sm text-muted-foreground" aria-live="polite">
-          Redirection vers Stripe…
+          {t('redirecting')}
         </p>
       )}
     </div>

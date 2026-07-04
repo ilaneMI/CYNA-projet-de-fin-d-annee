@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { getServerSupabase } from '@/lib/supabase-server';
+import { requireAdminAAL2 } from '@/lib/admin/require-aal2';
+import { logAdminAction } from '@/lib/admin/audit-log';
+import {
+  tryClaimAndSendRuptureAlert,
+  resetRuptureAlertFlag,
+} from '@/lib/admin/rupture-alert';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,13 +67,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } },
 ): Promise<NextResponse> {
-  const supabase = getServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'authentication required' }, { status: 401 });
-  }
+  const guard = await requireAdminAAL2();
+  if (!guard.ok) return guard.response;
+  const { supabase, user } = guard;
 
   let patch: Patch;
   try {
@@ -93,6 +94,47 @@ export async function PATCH(
     return NextResponse.json({ error: error.message, code: error.code }, { status });
   }
 
+  // AUDIT LOG POINT (Ticket 44) — best-effort.
+  await logAdminAction({
+    actor: { id: user.id, email: user.email ?? null },
+    action: 'update',
+    entityType: 'product',
+    entityId: params.id,
+    summary: `Produit ${params.id} mis à jour`,
+    diff: { patch },
+  });
+
+  // TICKET 45 — alerte rupture stock, best-effort strict.
+  // Ces appels ne peuvent JAMAIS faire échouer la mutation ni changer
+  // le status/payload (helpers wrappent tout dans try/catch, retour
+  // Promise<void>). Le bloc rupture est HORS de la chaîne d'audit —
+  // le log ticket 44 s'insère indépendamment.
+  //
+  // Distinction :
+  //   - patch.availability === 'out_of_stock' → claim atomique + email
+  //     si claim OK. Anti-spam via rupture_alerted_at.
+  //   - patch.availability in ('in_stock','limited') → reset du flag
+  //     pour ré-armer la prochaine alerte.
+  //   - patch.availability undefined/null (mutation qui ne touche pas
+  //     availability) → aucune action, comportement inchangé.
+  if (patch.availability === 'out_of_stock') {
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | { name?: Record<string, string> | null; slug?: string }
+      | null;
+    const productName =
+      row?.name?.fr ?? row?.name?.en ?? row?.slug ?? params.id;
+    await tryClaimAndSendRuptureAlert({
+      actor: { id: user.id, email: user.email ?? null },
+      productId: params.id,
+      productName: String(productName),
+    });
+  } else if (
+    patch.availability === 'in_stock' ||
+    patch.availability === 'limited'
+  ) {
+    await resetRuptureAlertFlag(params.id);
+  }
+
   revalidateCatalogue();
   return NextResponse.json({ data });
 }
@@ -101,19 +143,25 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: { id: string } },
 ): Promise<NextResponse> {
-  const supabase = getServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'authentication required' }, { status: 401 });
-  }
+  const guard = await requireAdminAAL2();
+  if (!guard.ok) return guard.response;
+  const { supabase, user } = guard;
 
   const { error } = await supabase.rpc('admin_delete_product', { p_id: params.id });
   if (error) {
     const status = STATUS_BY_CODE[error.code ?? ''] ?? 500;
     return NextResponse.json({ error: error.message, code: error.code }, { status });
   }
+
+  // AUDIT LOG POINT (Ticket 44) — best-effort.
+  await logAdminAction({
+    actor: { id: user.id, email: user.email ?? null },
+    action: 'delete',
+    entityType: 'product',
+    entityId: params.id,
+    summary: `Produit ${params.id} supprimé (soft delete via RPC)`,
+    diff: null,
+  });
 
   revalidateCatalogue();
   return NextResponse.json({ deleted: true });

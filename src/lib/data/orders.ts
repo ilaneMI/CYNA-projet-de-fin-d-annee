@@ -75,6 +75,7 @@ const toOrder = (row: OrderRow): Order => {
     ? new Date().getFullYear()
     : created.getFullYear();
   return {
+    id: row.id,
     orderNumber: row.order_number,
     createdAt: row.created_at,
     year,

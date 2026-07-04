@@ -174,8 +174,8 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     // route handler). 'Limité' still allows purchase per business rules.
     if (product.stock_status === 'Rupture de Stock') {
       toast({
-        title: 'Produit indisponible',
-        description: `${product.name} est actuellement en rupture de stock.`,
+        title: 'Service indisponible',
+        description: `${product.name} est actuellement indisponible.`,
         variant: 'destructive',
       });
       return;

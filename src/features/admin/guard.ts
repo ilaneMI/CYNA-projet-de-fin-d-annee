@@ -1,24 +1,27 @@
 import type { CurrentUser } from '@/context/AuthContext';
 
 /**
- * Provisional admin email used while we do not have RBAC.
+ * Client-side helper: tells the UI whether the current user holds the
+ * `admin` role on their `public.profiles` row.
  *
- * FIXME-SECURITY: hardcoded email check is a stopgap. When Supabase Auth
- * lands, this entire mechanism must be replaced by:
+ * Reality check — this is UX only.
  *
- *   1. a `role` column on `users` set to `'admin'` for the back-office team,
- *   2. an RLS-aware Supabase middleware in /admin that verifies the JWT
- *      and rejects non-admin requests at the edge before any UI renders,
- *   3. mandatory MFA / 2FA for the admin role,
- *   4. a 2-hour max session lifetime for admin tokens (vs 7 days for
- *      regular users),
- *   5. an `admin_audit_log` table that records every admin action
- *      (auth.uid(), action, target id, IP, user agent).
+ * What actually protects the back-office is the database:
+ *   - the SECURITY DEFINER `is_admin()` function on Supabase,
+ *   - RLS policies on every admin-touched table (products, orders,
+ *     audit log…) that gate reads/writes behind `is_admin()`.
  *
- * Until then, the line below is a demo-only gate that anyone with the
- * dev console can bypass — do NOT push this to production as-is.
+ * Even if an attacker flips `currentUser.role` in the dev console and
+ * renders the admin UI, every read/write still goes through Postgres
+ * and is rejected at the row level. The admin UI is not a secret —
+ * its data is.
+ *
+ * Still missing (next lots):
+ *   - a Next.js middleware that 401s `/admin/*` for non-admin JWTs
+ *     before the route is ever rendered,
+ *   - mandatory MFA / 2FA for the admin role,
+ *   - shorter session lifetime for admin tokens,
+ *   - an `admin_audit_log` populated server-side.
  */
-export const ADMIN_EMAIL = 'admin@cyna.com';
-
 export const isAdmin = (user: CurrentUser | null | undefined): boolean =>
-  Boolean(user && user.email === ADMIN_EMAIL);
+  user?.role === 'admin';

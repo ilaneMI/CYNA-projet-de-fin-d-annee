@@ -2,6 +2,7 @@ export type {
   Category,
   CarouselItem,
   Product,
+  ProductImage,
   ProductQuery,
   ProductSort,
   StockFilter,
@@ -10,6 +11,10 @@ export type {
 
 export { getCategories, getCategoryById } from './categories';
 export { getCarouselItems } from './carousel';
+export { getHomeContent } from './homeContent';
+export type { HomeBlock } from './homeContent';
+export { getRupturedProducts } from './rupture';
+export type { RupturedProduct } from './rupture';
 export {
   getProductById,
   getProducts,

@@ -1,77 +1,84 @@
 'use client';
 
 import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useTranslations } from 'next-intl';
 import { CheckCircle2, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { ContactErrors, ContactMessage } from './types';
-import { hasContactErrors, validateContact } from './validation';
+import type { ContactMessage } from './types';
+import { hasContactErrors, validateContact, type ContactErrorsI18n } from './validation';
 
-const emptyForm = (): ContactMessage => ({ email: '', subject: '', message: '' });
+const emptyForm = (): ContactMessage => ({ name: '', email: '', subject: '', message: '' });
+
+type FieldName = keyof ContactMessage;
+
+type Field = {
+  name: FieldName;
+  type: 'email' | 'text' | 'textarea';
+  autoComplete: string;
+};
+
+const FIELDS: Field[] = [
+  { name: 'name', type: 'text', autoComplete: 'name' },
+  { name: 'email', type: 'email', autoComplete: 'email' },
+  { name: 'subject', type: 'text', autoComplete: 'off' },
+  { name: 'message', type: 'textarea', autoComplete: 'off' },
+];
 
 export default function ContactForm() {
+  const t = useTranslations('contact.form');
   const [form, setForm] = useState<ContactMessage>(emptyForm);
-  const [touched, setTouched] = useState<Partial<Record<keyof ContactMessage, boolean>>>({});
+  const [touched, setTouched] = useState<Partial<Record<FieldName, boolean>>>({});
   const [submitted, setSubmitted] = useState(false);
   const [sending, setSending] = useState(false);
-  const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const errors: ContactErrors = useMemo(() => validateContact(form), [form]);
+  const errors: ContactErrorsI18n = useMemo(() => validateContact(form), [form]);
 
   const handleChange =
-    (name: keyof ContactMessage) =>
+    (name: FieldName) =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setForm((prev) => ({ ...prev, [name]: event.target.value }));
     };
 
-  const handleBlur = (name: keyof ContactMessage) => () => {
+  const handleBlur = (name: FieldName) => () => {
     setTouched((prev) => ({ ...prev, [name]: true }));
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitted(true);
+    setSubmitError(null);
     if (hasContactErrors(errors)) return;
     setSending(true);
 
-    // TODO(supabase): POST to an Edge Function that validates the payload,
-    // checks a honeypot / Turnstile token, inserts a row in
-    // `contact_messages` (RLS: insert-only for `anon`), and notifies the
-    // backoffice (email + Slack). Until then this is a UX-only placeholder
-    // — nothing actually leaves the browser.
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          subject: form.subject.trim(),
+          message: form.message.trim(),
+        }),
+      });
 
-    setSending(false);
-    setForm(emptyForm());
-    setTouched({});
-    setSubmitted(false);
-    setConfirmation(
-      "Merci ! Votre message a bien été enregistré localement. Le branchement Supabase enverra la notification au support.",
-    );
+      if (!response.ok) {
+        setSubmitError(t('genericSubmitError'));
+        return;
+      }
+
+      setForm(emptyForm());
+      setTouched({});
+      setSubmitted(false);
+      setConfirmation(true);
+    } catch {
+      setSubmitError(t('genericSubmitError'));
+    } finally {
+      setSending(false);
+    }
   };
-
-  const fields: Array<{
-    name: keyof ContactMessage;
-    label: string;
-    type: 'email' | 'text' | 'textarea';
-    autoComplete: string;
-    placeholder: string;
-  }> = [
-    { name: 'email', label: 'Email', type: 'email', autoComplete: 'email', placeholder: 'votre@email.com' },
-    {
-      name: 'subject',
-      label: 'Sujet',
-      type: 'text',
-      autoComplete: 'off',
-      placeholder: 'Comment pouvons-nous vous aider ?',
-    },
-    {
-      name: 'message',
-      label: 'Message',
-      type: 'textarea',
-      autoComplete: 'off',
-      placeholder: 'Décrivez votre besoin…',
-    },
-  ];
 
   return (
     <section
@@ -80,11 +87,9 @@ export default function ContactForm() {
     >
       <header className="mb-6">
         <h2 id="contact-heading" className="text-xl font-bold text-foreground sm:text-2xl">
-          Contactez-nous
+          {t('heading')}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Notre équipe vous répond sous 24 heures ouvrées.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">{t('subheading')}</p>
       </header>
 
       {confirmation ? (
@@ -95,15 +100,15 @@ export default function ContactForm() {
         >
           <CheckCircle2 aria-hidden="true" className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
           <div>
-            <p>{confirmation}</p>
+            <p>{t('confirmation')}</p>
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="mt-4"
-              onClick={() => setConfirmation(null)}
+              onClick={() => setConfirmation(false)}
             >
-              Envoyer un autre message
+              {t('sendAnother')}
             </Button>
           </div>
         </div>
@@ -111,20 +116,29 @@ export default function ContactForm() {
         <form
           onSubmit={handleSubmit}
           noValidate
-          aria-label="Formulaire de contact"
-          data-contact="placeholder"
+          aria-label={t('formAria')}
           className="space-y-5"
         >
-          {fields.map((field) => {
+          {submitError && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {submitError}
+            </div>
+          )}
+          {FIELDS.map((field) => {
             const errorId = `contact-${field.name}-error`;
-            const showError = (touched[field.name] || submitted) && Boolean(errors[field.name]);
+            const errorMeta = errors[field.name];
+            const showError = (touched[field.name] || submitted) && Boolean(errorMeta);
             const inputClass =
               'w-full rounded-md border border-input bg-background px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary';
 
             return (
               <div key={field.name}>
                 <label htmlFor={`contact-${field.name}`} className="mb-1 block text-sm font-medium text-foreground">
-                  {field.label}
+                  {t(`fields.${field.name}`)}
                   <span aria-hidden="true" className="ml-0.5 text-destructive">
                     *
                   </span>
@@ -140,7 +154,7 @@ export default function ContactForm() {
                     onBlur={handleBlur(field.name)}
                     aria-invalid={showError || undefined}
                     aria-describedby={showError ? errorId : undefined}
-                    placeholder={field.placeholder}
+                    placeholder={t(`placeholders.${field.name}`)}
                     className={`${inputClass} resize-vertical`}
                   />
                 ) : (
@@ -155,13 +169,13 @@ export default function ContactForm() {
                     onBlur={handleBlur(field.name)}
                     aria-invalid={showError || undefined}
                     aria-describedby={showError ? errorId : undefined}
-                    placeholder={field.placeholder}
+                    placeholder={t(`placeholders.${field.name}`)}
                     className={inputClass}
                   />
                 )}
-                {showError && (
+                {showError && errorMeta && (
                   <p id={errorId} role="alert" className="mt-1 text-sm text-destructive">
-                    {errors[field.name]}
+                    {t(errorMeta.key, errorMeta.values)}
                   </p>
                 )}
               </div>
@@ -170,13 +184,10 @@ export default function ContactForm() {
 
           <Button type="submit" size="lg" disabled={sending} aria-busy={sending || undefined} className="w-full">
             <Send aria-hidden="true" className="mr-2 h-4 w-4" />
-            {sending ? 'Envoi…' : 'Envoyer le message'}
+            {sending ? t('sending') : t('submit')}
           </Button>
 
-          <p className="text-xs text-muted-foreground">
-            En envoyant ce formulaire, vous acceptez que Cyna utilise vos coordonnées pour
-            répondre à votre demande. Vos données seront conservées 12 mois (RGPD).
-          </p>
+          <p className="text-xs text-muted-foreground">{t('gdprNotice')}</p>
         </form>
       )}
     </section>

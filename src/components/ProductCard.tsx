@@ -1,24 +1,35 @@
 'use client';
 
-import Link from 'next/link';
+import { useLocale, useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
+import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
-import type { Product } from '@/lib/data';
+import type { Product, StockStatus } from '@/lib/data';
 
-const getStockStatusColor = (status: string) => {
-  switch (status) {
-    case 'En Stock':
-      return 'bg-green-900/50 text-green-200 border border-green-800';
-    case 'Limité':
-      return 'bg-yellow-900/50 text-yellow-200 border border-yellow-800';
-    case 'Rupture de Stock':
-      return 'bg-red-900/50 text-red-200 border border-red-800';
-    default:
-      return 'bg-secondary text-secondary-foreground';
-  }
+// Le champ `stock_status` en base est déjà en FR (enum côté data layer),
+// donc on mappe explicitement FR → clé i18n plutôt que côté DB.
+// À plus long terme, si l'enum côté data devient locale-agnostic
+// (ex. 'in_stock'), on simplifie ce mapping.
+const STATUS_TO_KEY: Record<StockStatus, 'inStock' | 'limited' | 'outOfStock'> = {
+  'En Stock': 'inStock',
+  Limité: 'limited',
+  'Rupture de Stock': 'outOfStock',
+};
+
+const STATUS_COLOR: Record<StockStatus, string> = {
+  'En Stock': 'bg-green-900/50 text-green-200 border border-green-800',
+  Limité: 'bg-yellow-900/50 text-yellow-200 border border-yellow-800',
+  'Rupture de Stock': 'bg-red-900/50 text-red-200 border border-red-800',
 };
 
 export default function ProductCard({ product }: { product: Product }) {
+  const t = useTranslations('productCard');
+  const locale = useLocale();
+  const numberFormatter = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'fr-FR');
+
+  const stockKey = STATUS_TO_KEY[product.stock_status] ?? 'inStock';
+  const stockColor = STATUS_COLOR[product.stock_status] ?? 'bg-secondary text-secondary-foreground';
+
   return (
     <motion.div
       whileHover={{ scale: 1.03, y: -5 }}
@@ -33,8 +44,8 @@ export default function ProductCard({ product }: { product: Product }) {
             className="w-full h-full object-cover transition-transform duration-300 hover:scale-110 opacity-90 hover:opacity-100"
           />
           <div className="absolute top-3 right-3">
-            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStockStatusColor(product.stock_status)}`}>
-              {product.stock_status}
+            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${stockColor}`}>
+              {t(`stock.${stockKey}`)}
             </span>
           </div>
         </div>
@@ -51,24 +62,24 @@ export default function ProductCard({ product }: { product: Product }) {
           <div className="space-y-1 mb-4 border-t border-border pt-4">
             {product.price_monthly != null && (
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Mensuel</span>
+                <span className="text-xs text-muted-foreground">{t('monthly')}</span>
                 <span className="text-sm font-semibold text-primary">
-                  {`${product.price_monthly.toLocaleString('fr-FR')} €/mois`}
+                  {t('pricePerMonth', { price: numberFormatter.format(product.price_monthly) })}
                 </span>
               </div>
             )}
             {product.price_annual != null && (
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Annuel</span>
+                <span className="text-xs text-muted-foreground">{t('annual')}</span>
                 <span className="text-sm font-semibold text-primary">
-                  {`${product.price_annual.toLocaleString('fr-FR')} €/an`}
+                  {t('pricePerYear', { price: numberFormatter.format(product.price_annual) })}
                 </span>
               </div>
             )}
           </div>
 
           <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all duration-300">
-            Voir Détails
+            {t('viewDetails')}
           </Button>
         </div>
       </Link>

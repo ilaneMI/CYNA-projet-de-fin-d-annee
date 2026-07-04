@@ -10,31 +10,34 @@ const POSTAL_REGEX = /^[A-Za-z0-9 \-]{3,10}$/;
 
 export const isEmailValid = (value: string): boolean => EMAIL_REGEX.test(value.trim());
 
-const required = (label: string) => `${label} est requis.`;
-
+/**
+ * i18n LOT 1 : validation returns i18n message KEYS (relative to the
+ * `checkout` namespace) rather than pre-formatted French strings. Callers
+ * (Step2Billing) resolve them via `useTranslations('checkout')`.
+ */
 export const validateBilling = (form: BillingAddress): BillingErrors => {
   const errors: BillingErrors = {};
 
-  if (!form.firstName.trim()) errors.firstName = required('Le prénom');
-  if (!form.lastName.trim()) errors.lastName = required('Le nom');
+  if (!form.firstName.trim()) errors.firstName = 'billing.errors.firstNameRequired';
+  if (!form.lastName.trim()) errors.lastName = 'billing.errors.lastNameRequired';
   if (!form.email.trim()) {
-    errors.email = required("L'email");
+    errors.email = 'billing.errors.emailRequired';
   } else if (!isEmailValid(form.email)) {
-    errors.email = "Format d'email invalide.";
+    errors.email = 'billing.errors.emailInvalid';
   }
-  if (!form.address1.trim()) errors.address1 = required("L'adresse");
-  if (!form.city.trim()) errors.city = required('La ville');
-  if (!form.region.trim()) errors.region = required('La région');
+  if (!form.address1.trim()) errors.address1 = 'billing.errors.address1Required';
+  if (!form.city.trim()) errors.city = 'billing.errors.cityRequired';
+  if (!form.region.trim()) errors.region = 'billing.errors.regionRequired';
   if (!form.postalCode.trim()) {
-    errors.postalCode = required('Le code postal');
+    errors.postalCode = 'billing.errors.postalCodeRequired';
   } else if (!POSTAL_REGEX.test(form.postalCode.trim())) {
-    errors.postalCode = 'Code postal invalide.';
+    errors.postalCode = 'billing.errors.postalCodeInvalid';
   }
-  if (!form.country.trim()) errors.country = required('Le pays');
+  if (!form.country.trim()) errors.country = 'billing.errors.countryRequired';
   if (!form.phone.trim()) {
-    errors.phone = required('Le téléphone');
+    errors.phone = 'billing.errors.phoneRequired';
   } else if (!PHONE_REGEX.test(form.phone.trim())) {
-    errors.phone = 'Numéro de téléphone invalide.';
+    errors.phone = 'billing.errors.phoneInvalid';
   }
 
   return errors;

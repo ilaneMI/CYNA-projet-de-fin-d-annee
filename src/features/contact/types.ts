@@ -1,10 +1,9 @@
 export type ContactMessage = {
+  name: string;
   email: string;
   subject: string;
   message: string;
 };
-
-export type ContactErrors = Partial<Record<keyof ContactMessage, string>>;
 
 export type ChatMessage = {
   id: string;

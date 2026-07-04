@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Mail } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { validateEmail } from '@/lib/auth';
@@ -15,23 +15,17 @@ type Props = {
  * Pure login form. All credential handling goes through `useAuth().login()` —
  * we never hash, store or compare passwords here.
  *
- * FIXME-SECURITY: today `useAuth().login()` falls back to a client-side
- * SHA-256 hash in `lib/auth.ts` because Supabase Auth is not wired in yet
- * (the implementation is gated by SUPABASE_ENABLED). The whole flow will be
- * replaced by Supabase Auth (bcrypt + JWT, server-issued cookies). Do NOT
- * add any new hashing or credential storage here.
+ * Le lien "Mot de passe oublié" pointe vers /forgot-password (source
+ * unique du flow de réinitialisation, anti-énumération uniforme,
+ * redirectTo absolu géré côté page).
  */
 export default function LoginForm({ onSuccess }: Props) {
-  const { login, resetPassword } = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
-
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
-  const [resetSubmitting, setResetSubmitting] = useState(false);
 
   const canSubmit = validateEmail(email) && password.length > 0 && !submitting;
 
@@ -50,15 +44,6 @@ export default function LoginForm({ onSuccess }: Props) {
       return;
     }
     setFormError(result.error ?? 'Identifiants invalides.');
-  };
-
-  const handleReset = async () => {
-    if (!validateEmail(resetEmail)) return;
-    setResetSubmitting(true);
-    await resetPassword(resetEmail);
-    setResetSubmitting(false);
-    setResetEmail('');
-    setResetOpen(false);
   };
 
   return (
@@ -106,15 +91,12 @@ export default function LoginForm({ onSuccess }: Props) {
             />
             Se souvenir de moi
           </label>
-          <button
-            type="button"
-            onClick={() => setResetOpen((open) => !open)}
-            aria-expanded={resetOpen}
-            aria-controls="login-reset-region"
+          <Link
+            href="/forgot-password"
             className="self-start text-sm text-primary underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:self-auto"
           >
             Mot de passe oublié ?
-          </button>
+          </Link>
         </div>
 
         <p
@@ -137,44 +119,6 @@ export default function LoginForm({ onSuccess }: Props) {
           {submitting ? 'Connexion…' : 'Se connecter'}
         </Button>
       </form>
-
-      {resetOpen && (
-        <div
-          id="login-reset-region"
-          role="region"
-          aria-label="Réinitialisation du mot de passe"
-          className="rounded-md border border-border bg-secondary/30 p-4"
-        >
-          <div className="mb-3 flex items-start gap-2">
-            <Mail aria-hidden="true" className="mt-0.5 h-4 w-4 text-primary" />
-            <p className="text-sm text-muted-foreground">
-              Saisissez votre email, nous vous enverrons un lien de réinitialisation.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <label htmlFor="reset-email" className="sr-only">
-              Email pour la réinitialisation
-            </label>
-            <input
-              id="reset-email"
-              type="email"
-              autoComplete="email"
-              value={resetEmail}
-              onChange={(event) => setResetEmail(event.target.value)}
-              placeholder="votre@email.com"
-              className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleReset}
-              disabled={!validateEmail(resetEmail) || resetSubmitting}
-            >
-              {resetSubmitting ? 'Envoi…' : 'Envoyer le lien'}
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

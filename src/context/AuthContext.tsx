@@ -208,20 +208,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (!validateEmail(email)) {
         throw new Error("Format d'email invalide.");
       }
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
-      if (error) throw new Error(mapAuthError(error.message));
-      toast({
-        title: 'Email de réinitialisation envoyé',
-        description: 'Vérifiez votre email pour les instructions.',
+      // redirectTo doit être une URL ABSOLUE et présente dans la
+      // allow-list "Redirect URLs" du dashboard Supabase, sinon le service
+      // retombe sur le Site URL et perd notre token côté /reset-password.
+      // `window.location.origin` est correct sur les 3 surfaces (dev,
+      // staging, prod) tant que chacune a son origin déclarée dans la
+      // dashboard config.
+      const redirectTo =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}/reset-password`
+          : undefined;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo,
       });
+      if (error) throw new Error(mapAuthError(error.message));
+      // Pas de toast ici : la page appelante affiche un message NEUTRE
+      // anti-énumération ("si un compte existe…"). Un toast "email envoyé"
+      // confirmerait l'existence du compte à un attaquant qui sait lire un
+      // toast — autant garder le canal unique.
       return { success: true };
     } catch (err) {
       const message = errorMessage(err);
-      toast({
-        title: 'Échec de la réinitialisation',
-        description: message,
-        variant: 'destructive',
-      });
+      // Erreur réseau / format : on remonte sans toast, la page gère.
       return { success: false, error: message };
     }
   };

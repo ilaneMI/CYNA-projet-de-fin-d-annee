@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import type { BillingAddress, BillingErrors } from './types';
 import { hasErrors, validateBilling } from './validation';
@@ -15,28 +16,27 @@ type FieldName = keyof BillingAddress;
 
 type Field = {
   name: FieldName;
-  label: string;
   type: 'text' | 'email' | 'tel';
   autoComplete: string;
   required: boolean;
   className: string; // grid-span helpers
-  placeholder?: string;
 };
 
 const FIELDS: Field[] = [
-  { name: 'firstName', label: 'Prénom', type: 'text', autoComplete: 'given-name', required: true, className: '' },
-  { name: 'lastName', label: 'Nom', type: 'text', autoComplete: 'family-name', required: true, className: '' },
-  { name: 'email', label: 'Email', type: 'email', autoComplete: 'email', required: true, className: 'sm:col-span-2' },
-  { name: 'address1', label: 'Adresse 1', type: 'text', autoComplete: 'address-line1', required: true, className: 'sm:col-span-2' },
-  { name: 'address2', label: 'Adresse 2 (optionnel)', type: 'text', autoComplete: 'address-line2', required: false, className: 'sm:col-span-2' },
-  { name: 'city', label: 'Ville', type: 'text', autoComplete: 'address-level2', required: true, className: '' },
-  { name: 'region', label: 'Région', type: 'text', autoComplete: 'address-level1', required: true, className: '' },
-  { name: 'postalCode', label: 'Code postal', type: 'text', autoComplete: 'postal-code', required: true, className: '' },
-  { name: 'country', label: 'Pays', type: 'text', autoComplete: 'country-name', required: true, className: '' },
-  { name: 'phone', label: 'Téléphone', type: 'tel', autoComplete: 'tel', required: true, className: 'sm:col-span-2' },
+  { name: 'firstName', type: 'text', autoComplete: 'given-name', required: true, className: '' },
+  { name: 'lastName', type: 'text', autoComplete: 'family-name', required: true, className: '' },
+  { name: 'email', type: 'email', autoComplete: 'email', required: true, className: 'sm:col-span-2' },
+  { name: 'address1', type: 'text', autoComplete: 'address-line1', required: true, className: 'sm:col-span-2' },
+  { name: 'address2', type: 'text', autoComplete: 'address-line2', required: false, className: 'sm:col-span-2' },
+  { name: 'city', type: 'text', autoComplete: 'address-level2', required: true, className: '' },
+  { name: 'region', type: 'text', autoComplete: 'address-level1', required: true, className: '' },
+  { name: 'postalCode', type: 'text', autoComplete: 'postal-code', required: true, className: '' },
+  { name: 'country', type: 'text', autoComplete: 'country-name', required: true, className: '' },
+  { name: 'phone', type: 'tel', autoComplete: 'tel', required: true, className: 'sm:col-span-2' },
 ];
 
 export default function Step2Billing({ initial, onBack, onContinue }: Props) {
+  const t = useTranslations('checkout');
   const [form, setForm] = useState<BillingAddress>(initial);
   const [touched, setTouched] = useState<Partial<Record<FieldName, boolean>>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -76,21 +76,19 @@ export default function Step2Billing({ initial, onBack, onContinue }: Props) {
     <form onSubmit={handleSubmit} noValidate className="space-y-6" aria-labelledby="step-2-heading">
       <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
         <h2 id="step-2-heading" className="mb-1 text-lg font-semibold text-foreground">
-          Informations de facturation
+          {t('billing.heading')}
         </h2>
-        <p className="mb-6 text-sm text-muted-foreground">
-          Renseignez vos coordonnées de facturation. Les champs marqués d&apos;un astérisque sont
-          obligatoires.
-        </p>
+        <p className="mb-6 text-sm text-muted-foreground">{t('billing.subheading')}</p>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {FIELDS.map((field) => {
             const errorId = `${field.name}-error`;
-            const showError = (touched[field.name] || submitted) && Boolean(errors[field.name]);
+            const errorKey = errors[field.name];
+            const showError = (touched[field.name] || submitted) && Boolean(errorKey);
             return (
               <div key={field.name} className={field.className}>
                 <label htmlFor={field.name} className="mb-1 block text-sm font-medium text-foreground">
-                  {field.label}
+                  {t(`billing.fields.${field.name}`)}
                   {field.required && (
                     <span aria-hidden="true" className="ml-0.5 text-destructive">
                       *
@@ -110,9 +108,9 @@ export default function Step2Billing({ initial, onBack, onContinue }: Props) {
                   aria-describedby={showError ? errorId : undefined}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
-                {showError && (
+                {showError && errorKey && (
                   <p id={errorId} role="alert" className="mt-1 text-sm text-destructive">
-                    {errors[field.name]}
+                    {t(errorKey)}
                   </p>
                 )}
               </div>
@@ -127,10 +125,10 @@ export default function Step2Billing({ initial, onBack, onContinue }: Props) {
           aria-live="polite"
           className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
         >
-          <p className="mb-2 font-semibold">Veuillez corriger les erreurs suivantes :</p>
+          <p className="mb-2 font-semibold">{t('billing.errorSummary')}</p>
           <ul className="list-inside list-disc space-y-1">
-            {summaryErrors.map(([name, message]) => (
-              <li key={name}>{message}</li>
+            {summaryErrors.map(([name, messageKey]) => (
+              <li key={name}>{t(messageKey)}</li>
             ))}
           </ul>
         </div>
@@ -138,10 +136,10 @@ export default function Step2Billing({ initial, onBack, onContinue }: Props) {
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <Button type="button" variant="outline" size="lg" onClick={onBack} className="sm:flex-1">
-          Retour
+          {t('billing.back')}
         </Button>
         <Button type="submit" size="lg" className="sm:flex-1">
-          Continuer vers le paiement
+          {t('billing.continue')}
         </Button>
       </div>
     </form>

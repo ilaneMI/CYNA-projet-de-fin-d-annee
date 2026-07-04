@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import type Stripe from 'stripe';
 import { getStripe } from '@/lib/stripe-server';
 import { getServiceSupabase } from '@/lib/supabase-service';
+import { sendOrderConfirmation } from '@/lib/email/resend';
 
 export const runtime = 'nodejs';        // Stripe SDK uses Node crypto
 export const dynamic = 'force-dynamic'; // never cached
@@ -172,9 +173,15 @@ async function handleCheckoutSessionCompleted(
   event: Stripe.Event,
 ): Promise<void> {
   const baseSession = event.data.object as Stripe.Checkout.Session;
-  // Re-fetch with line_items + product expanded; the event payload omits them.
+  // Re-fetch with line_items + product + invoice expanded ; le payload de
+  // l'évènement les omet. `invoice` est expandé pour récupérer in_xxx en
+  // un appel et le pinner sur orders.stripe_invoice_id (Lot Outils —
+  // Facture PDF). En mode subscription, Stripe crée toujours une invoice
+  // à la complétion ; en mode payment, elle n'existe que si
+  // invoice_creation.enabled=true côté session — la lecture reste safe
+  // sur null dans tous les cas.
   const session = await stripe.checkout.sessions.retrieve(baseSession.id, {
-    expand: ['line_items.data.price.product'],
+    expand: ['line_items.data.price.product', 'invoice'],
   });
 
   const userId = session.client_reference_id;
@@ -236,24 +243,24 @@ async function handleCheckoutSessionCompleted(
     };
   });
 
-  // Sanity check — total Stripe charged vs. what we are about to store.
-  // The RPC recomputes total = sum(unit_amount × quantity) just like this.
-  // Exact today (no VAT, no coupons, no proration). When any of those land
-  // we will need to persist session.amount_total directly and STOP
-  // recomputing, since the recompute would diverge.
+  // Sanity check — recompute (Σ unit_amount × quantity) doit toujours
+  // égaler le SOUS-TOTAL Stripe (amount_subtotal), c'est-à-dire le
+  // montant AVANT réduction. Depuis le ticket 55 (codes promo actifs),
+  // amount_total peut légitimement diverger du recompute quand un code
+  // est appliqué — c'est la raison même du fix. Ce qui reste anormal :
+  // recompute ≠ amount_subtotal (là il y a un vrai bug de résolution
+  // catalogue → Stripe).
   const recomputedTotal = items.reduce(
     (acc, it) => acc + it.unit_amount * it.quantity,
     0,
   );
-  if (
-    typeof session.amount_total === 'number' &&
-    recomputedTotal !== session.amount_total
-  ) {
+  const stripeSubtotal =
+    typeof session.amount_subtotal === 'number' ? session.amount_subtotal : null;
+  if (stripeSubtotal !== null && recomputedTotal !== stripeSubtotal) {
     console.warn(
-      `[stripe webhook] total mismatch on session ${session.id}: ` +
-        `recomputed=${recomputedTotal}, stripe=${session.amount_total}. ` +
-        'Stripe is authoritative; investigate (probably VAT/coupon/proration ' +
-        'landed and we need to switch to storing amount_total directly).',
+      `[stripe webhook] subtotal mismatch on session ${session.id}: ` +
+        `recomputed=${recomputedTotal}, stripe amount_subtotal=${stripeSubtotal}. ` +
+        'Investigate catalog resolution (VAT/proration/misseeded prices).',
     );
   }
 
@@ -262,7 +269,7 @@ async function handleCheckoutSessionCompleted(
       ? session.payment_intent
       : (session.payment_intent?.id ?? null);
 
-  const { error } = await supabase.rpc('place_order_for_user', {
+  const { data: rpcResult, error } = await supabase.rpc('place_order_for_user', {
     p_user_id: userId,
     p_status: status,
     p_email: email,
@@ -274,6 +281,150 @@ async function handleCheckoutSessionCompleted(
   });
   if (error) {
     throw new Error(`place_order_for_user RPC failed: ${error.message}`);
+  }
+
+  // Pinning orders.stripe_invoice_id (Lot Outils — Facture PDF).
+  //
+  // Hors RPC parce que modifier la signature de place_order_for_user
+  // bouleverserait son contrat d'idempotence (early-return par session_id
+  // + jsonb des items). Un UPDATE séparé en service_role est trivialement
+  // idempotent : on écrit toujours la même valeur sur replay (Stripe nous
+  // redonne le même invoice id pour la même session).
+  //
+  // Si pas d'invoice (mode payment sans invoice_creation, ou cas exotique),
+  // on saute silencieusement — la route handler retombera sur le fallback
+  // session.
+  const invoiceId =
+    typeof session.invoice === 'string'
+      ? session.invoice
+      : (session.invoice?.id ?? null);
+
+  const orderRow = (Array.isArray(rpcResult) ? rpcResult[0] : rpcResult) as
+    | { id: string; order_number: string }
+    | null
+    | undefined;
+  const orderId = orderRow?.id;
+  const orderNumber = orderRow?.order_number;
+
+  if (invoiceId && orderId) {
+    const { error: updateErr } = await supabase
+      .from('orders')
+      .update({ stripe_invoice_id: invoiceId })
+      .eq('id', orderId);
+    if (updateErr) {
+      // Non-blocking : la commande est posée, seul le pointeur invoice
+      // manque. La route handler fallback sur la session pour cette
+      // order ; on log pour visibilité et on laisse Stripe terminer
+      // proprement (pas de retry du webhook pour ce détail-là).
+      console.warn(
+        `[stripe webhook] order ${orderId} created but stripe_invoice_id update ` +
+          `failed: ${updateErr.message}. Fallback session resolution will still work.`,
+      );
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Ticket 55 — corriger orders.total_amount avec le montant Stripe
+  // réellement facturé.
+  //
+  // place_order_for_user recompute total = Σ unit_amount × quantity
+  // côté SQL. Avec un code promo actif sur Checkout, ce recompute
+  // reflète le PLEIN TARIF alors que Stripe a facturé subtotal - discount.
+  // On écrase ici, AVANT l'envoi de l'email et avant que le client
+  // n'atterrisse sur /my-account.
+  //
+  // Non-régression garantie sans code promo : le .neq() filtre les
+  // lignes où total_amount == amount_total → aucun UPDATE, aucun changement.
+  //
+  // Idempotent sur replay Stripe : on écrit toujours la même valeur
+  // (Stripe renvoie le même amount_total pour la même session).
+  //
+  // Fenêtre entre RPC et cet UPDATE (~ms) où orders.total_amount vaut
+  // le plein tarif — négligeable, aucune lecture externe possible dans
+  // ce laps (le client est encore sur /checkout/success).
+  // ─────────────────────────────────────────────────────────────────────
+  const paidTotalCents =
+    typeof session.amount_total === 'number' ? session.amount_total : recomputedTotal;
+  if (orderId && typeof session.amount_total === 'number') {
+    const { error: totalErr } = await supabase
+      .from('orders')
+      .update({ total_amount: session.amount_total })
+      .eq('id', orderId)
+      .neq('total_amount', session.amount_total);
+    if (totalErr) {
+      console.warn(
+        `[stripe webhook] order ${orderId} total_amount correction failed: ` +
+          `${totalErr.message}. Order remains at catalog total; investigate.`,
+      );
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Ticket 39 — Email de confirmation de commande (best-effort).
+  //
+  // Position : APRÈS place_order_for_user (commande durable en base) +
+  // APRÈS l'UPDATE stripe_invoice_id. Aucun re-fetch Stripe/Supabase :
+  // toutes les données viennent du scope local.
+  //
+  // Idempotence : claim atomique sur orders.confirmation_email_sent_at.
+  // L'UPDATE … WHERE … IS NULL RETURNING id sérialise les rejeux
+  // concurrents — un seul run obtient la garde, les autres voient 0
+  // ligne et sautent silencieusement.
+  //
+  // Best-effort : tout est encapsulé dans un try/catch local. Une
+  // erreur ici NE remonte JAMAIS au handler webhook — donc le
+  // `delete from stripe_events` du catch global n'est pas déclenché
+  // par un fail mail, donc Stripe ne rejoue PAS l'event sur ce motif.
+  //
+  // Trade-off documenté : on pose le timestamp AVANT envoi. Échec
+  // Resend après claim = pas de retry. Préférer 0 mail à 2 mails.
+  // Resend manuel : SET confirmation_email_sent_at = NULL via
+  // service_role + stripe events resend.
+  // ─────────────────────────────────────────────────────────────────────
+  if (orderId && orderNumber && email) {
+    try {
+      const { data: claimed, error: claimErr } = await supabase
+        .from('orders')
+        .update({ confirmation_email_sent_at: new Date().toISOString() })
+        .eq('id', orderId)
+        .is('confirmation_email_sent_at', null)
+        .select('id')
+        .maybeSingle();
+
+      if (claimErr) {
+        console.error(
+          `[email] claim failed for order ${orderId}: ${claimErr.message}. Skipping send.`,
+        );
+      } else if (!claimed) {
+        // Une autre exécution (retry Stripe, concurrence) a déjà tenté.
+        console.info(
+          `[email] order ${orderId} confirmation already claimed, skipping send.`,
+        );
+      } else {
+        await sendOrderConfirmation({
+          to: email,
+          orderNumber,
+          orderId,
+          items,
+          // Total réellement payé (post-réduction si code promo). Pas
+          // le recompute catalogue — sinon l'email annonce un montant
+          // que le client n'a jamais payé.
+          totalCents: paidTotalCents,
+          currency,
+        });
+        console.info(
+          `[email] order confirmation sent for order ${orderNumber} (${orderId})`,
+        );
+      }
+    } catch (err) {
+      // Ne JAMAIS rethrow — le webhook doit répondre 200 quoi qu'il
+      // arrive. Le timestamp est posé (claim acquis avant try send),
+      // donc pas de retry mail sur ce motif côté Stripe.
+      console.error(
+        `[email] order confirmation FAILED for order ${orderId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 }
 
