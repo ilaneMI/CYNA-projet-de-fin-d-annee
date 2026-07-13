@@ -7,7 +7,9 @@
     "save": "Save",
     "back": "Back",
     "next": "Next",
-    "previous": "Previous"
+    "previous": "Previous",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "nav": {
     "primaryNav": "Primary navigation",
