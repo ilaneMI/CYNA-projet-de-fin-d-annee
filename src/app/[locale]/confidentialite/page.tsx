@@ -47,10 +47,9 @@ export default async function ConfidentialitePage() {
             1. Responsable de traitement
           </h2>
           <p className="text-muted-foreground">
-            Le responsable de traitement est [À COMPLÉTER : raison sociale], dont le siège
-            social est situé à [À COMPLÉTER : adresse postale]. Pour toute question, vous
-            pouvez contacter notre référent à l’adresse [À COMPLÉTER : dpo@cyna.fr ou contact
-            désigné].
+            Le responsable de traitement est la SAS CYNA-IT, dont le siège social est
+            situé au 10, rue de Penthièvre — 75008 Paris — France. Pour toute question,
+            vous pouvez contacter notre référent à l’adresse dpo@cyna.fr.
           </p>
         </section>
 
@@ -137,8 +136,8 @@ export default async function ConfidentialitePage() {
           <ul className="mt-3 space-y-2 text-muted-foreground">
             <li>
               <strong className="text-foreground">Supabase</strong> — hébergement de la base
-              de données et authentification, dans la région [À COMPLÉTER : région exacte du
-              projet, Union européenne].
+              de données et authentification, dans la région eu-west-3 (Paris, France —
+              Union européenne).
             </li>
             <li>
               <strong className="text-foreground">Stripe</strong> — traitement des paiements
@@ -153,8 +152,9 @@ export default async function ConfidentialitePage() {
               Plausible est basé dans l’Union européenne (Allemagne).
             </li>
             <li>
-              <strong className="text-foreground">[À COMPLÉTER : hébergeur du frontend, ex.
-              Vercel]</strong> — exécution du site web.
+              <strong className="text-foreground">Vercel Inc.</strong> — hébergement et
+              exécution du site web (Covina, Californie, États-Unis). Voir la section 6
+              pour l’encadrement du transfert hors UE.
             </li>
           </ul>
         </section>
@@ -219,7 +219,7 @@ export default async function ConfidentialitePage() {
             9. Comment exercer vos droits
           </h2>
           <p className="text-muted-foreground">
-            Vous pouvez exercer vos droits en écrivant à [À COMPLÉTER : dpo@cyna.fr], en
+            Vous pouvez exercer vos droits en écrivant à dpo@cyna.fr, en
             joignant un justificatif d’identité en cas de doute légitime. Nous nous engageons
             à répondre dans un délai d’un mois, prolongeable de deux mois pour les demandes
             complexes. La suppression du compte est également accessible depuis l’espace{' '}

@@ -43,7 +43,7 @@ export default async function CguPage() {
           <p className="text-muted-foreground">
             Les présentes conditions encadrent l’utilisation du site cyna.fr et la souscription
             aux services de cybersécurité (SOC, EDR, XDR, renseignement sur les menaces)
-            proposés par [À COMPLÉTER : raison sociale]. En utilisant le site ou en passant
+            proposés par la SAS CYNA-IT. En utilisant le site ou en passant
             commande, l’utilisateur reconnaît avoir pris connaissance des présentes conditions
             et les accepter sans réserve.
           </p>
@@ -150,9 +150,8 @@ export default async function CguPage() {
           </h2>
           <p className="text-muted-foreground">
             Les présentes conditions sont régies par le droit français. À défaut de résolution
-            amiable, tout litige sera porté devant les tribunaux compétents de [À COMPLÉTER :
-            ressort judiciaire — par défaut, lieu du siège social], sous réserve des
-            dispositions impératives applicables aux consommateurs.
+            amiable, tout litige sera porté devant le Tribunal de commerce de Paris, sous
+            réserve des dispositions impératives applicables aux consommateurs.
           </p>
         </section>
       </article>

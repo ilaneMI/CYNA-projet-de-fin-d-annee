@@ -10,8 +10,7 @@ export const metadata: Metadata = {
 /**
  * i18n LOT 1 — Bloc C.
  *
- * Le corps du texte (édité par l'équipe légale, contient encore des
- * `[À COMPLÉTER]` non shippables) reste en français. Seuls le titre H1
+ * Le corps du texte reste en français. Seuls le titre H1
  * et le libellé "Dernière mise à jour" sont traduits. Une bannière en
  * EN prévient les visiteurs non-francophones que le contenu juridique
  * n'est disponible qu'en français pour le moment — l'écriture d'un
@@ -48,13 +47,13 @@ export default async function MentionsLegalesPage() {
             Le site <strong className="text-foreground">cyna.fr</strong> est édité par&nbsp;:
           </p>
           <ul className="mt-3 space-y-1 text-muted-foreground">
-            <li>Raison sociale : [À COMPLÉTER : forme juridique + dénomination sociale]</li>
-            <li>Siège social : [À COMPLÉTER : adresse postale complète]</li>
-            <li>Capital social : [À COMPLÉTER]</li>
-            <li>RCS / SIRET : [À COMPLÉTER]</li>
-            <li>Numéro de TVA intracommunautaire : [À COMPLÉTER]</li>
-            <li>Téléphone : [À COMPLÉTER]</li>
-            <li>Courriel : [À COMPLÉTER : contact@cyna.fr]</li>
+            <li>Raison sociale : SAS CYNA-IT (Société par actions simplifiée)</li>
+            <li>Siège social : 10, rue de Penthièvre — 75008 Paris — France</li>
+            <li>Capital social : 100 000 €</li>
+            <li>RCS / SIRET : RCS Paris B 913 711 032 — SIRET 913 711 032 00015</li>
+            <li>Numéro de TVA intracommunautaire : FR 20 913 711 032</li>
+            <li>Téléphone : +33 1 84 60 12 34</li>
+            <li>Courriel : contact@cyna.fr</li>
           </ul>
         </section>
 
@@ -63,7 +62,7 @@ export default async function MentionsLegalesPage() {
             Directeur de la publication
           </h2>
           <p className="text-muted-foreground">
-            [À COMPLÉTER : nom et qualité du directeur ou de la directrice de la publication].
+            Nathan Arnaud, Président de la SAS CYNA-IT.
           </p>
         </section>
 
@@ -74,12 +73,12 @@ export default async function MentionsLegalesPage() {
           <p className="text-muted-foreground">Le site est hébergé par&nbsp;:</p>
           <ul className="mt-3 space-y-1 text-muted-foreground">
             <li>
-              Frontend (application web) : [À COMPLÉTER : nom de l’hébergeur — par exemple Vercel
-              Inc., 440 N Barranca Ave #4133, Covina, CA 91723, États-Unis].
+              Frontend (application web) : Vercel Inc., 440 N Barranca Ave #4133, Covina,
+              CA 91723, États-Unis.
             </li>
             <li>
-              Base de données et authentification : [À COMPLÉTER : Supabase, région exacte
-              (Union européenne)].
+              Base de données et authentification : Supabase Inc., région eu-west-3
+              (Paris, France — Union européenne).
             </li>
           </ul>
         </section>
@@ -102,7 +101,7 @@ export default async function MentionsLegalesPage() {
           </h2>
           <p className="text-muted-foreground">
             Pour toute question relative au site ou à ces mentions, vous pouvez nous écrire à
-            l’adresse [À COMPLÉTER : contact@cyna.fr] ou utiliser le{' '}
+            l’adresse contact@cyna.fr ou utiliser le{' '}
             <a
               href="/tools"
               className="text-primary underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
