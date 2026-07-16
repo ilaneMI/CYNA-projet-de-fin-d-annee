@@ -23,20 +23,23 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
  */
 const csp = [
   "default-src 'self'",
-  // Stripe later: append https://js.stripe.com when Checkout/Elements lands.
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+  // js.stripe.com = SDK Stripe.js (Elements ajout de carte in-origin).
+  // m.stripe.network = Radar fraud fingerprint, chargé par js.stripe.com.
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://js.stripe.com https://m.stripe.network`,
   "style-src 'self' 'unsafe-inline'",
   // Catalogue uses Unsplash; data:/blob: cover SVG masks, blurred placeholders
   // and the future Supabase Storage bucket for product images.
-  "img-src 'self' data: blob: https://images.unsplash.com https://*.supabase.co",
+  // q.stripe.com = beacon Radar (fraude).
+  "img-src 'self' data: blob: https://images.unsplash.com https://*.supabase.co https://q.stripe.com",
   "font-src 'self' data:",
   // Supabase REST + Auth over HTTPS, realtime over WSS.
-  // Stripe later: append https://api.stripe.com.
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  // api.stripe.com = appels XHR Elements ; m.stripe.network = Radar beacons.
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://m.stripe.network",
   // Anti-clickjacking; redundant with X-Frame-Options but covers modern browsers.
   "frame-ancestors 'none'",
-  // Stripe Checkout later: replace with "frame-src https://js.stripe.com https://hooks.stripe.com".
-  "frame-src 'self'",
+  // js.stripe.com = iframes Elements (numéro carte / expiry / CVC sandboxés).
+  // hooks.stripe.com = iframe 3DS (Strong Customer Authentication).
+  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
