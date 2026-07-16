@@ -94,23 +94,29 @@ const sortImages = (images: ImageRow[]): ImageRow[] =>
 const firstImageUrl = (images: ImageRow[]): string =>
   sortImages(images)[0]?.url ?? '';
 
-const toGalleryImage = (row: ImageRow): ProductImage => ({
+// Locale-aware pick avec fallback FR — miroir de carousel.ts / categories.ts.
+// Refacto en util partagé (@/lib/data/pickLoc.ts) noté en dette
+// post-soutenance dans CLAUDE.md.
+const pickLoc = (rec: Record<string, string> | null, locale: string): string =>
+  rec?.[locale] ?? rec?.fr ?? rec?.en ?? '';
+
+const toGalleryImage = (row: ImageRow, locale: string): ProductImage => ({
   url: row.url,
   position: row.position,
-  alt: row.alt?.fr ?? null,
+  alt: pickLoc(row.alt, locale) || null,
 });
 
-const toProduct = (row: ProductRow): Product => ({
+const toProduct = (row: ProductRow, locale: string): Product => ({
   id: row.slug,
   pk_id: row.id,
-  name: row.name?.fr ?? '',
-  description: row.description?.fr ?? '',
+  name: pickLoc(row.name, locale),
+  description: pickLoc(row.description, locale),
   price_monthly: findPriceCents(row.prices, 'monthly', 'flat') / 100,
   price_annual: findPriceCents(row.prices, 'annual', 'flat') / 100,
   price_per_user: findPriceCents(row.prices, 'monthly', 'per_user') / 100,
   category_id: row.category.slug,
   image_url: firstImageUrl(row.product_images),
-  images: sortImages(row.product_images).map(toGalleryImage),
+  images: sortImages(row.product_images).map((img) => toGalleryImage(img, locale)),
   stock_status: AVAILABILITY_LABEL[row.availability],
   technical_specs: row.specs ?? {},
   priority: row.priority,
@@ -153,7 +159,10 @@ const compareProducts = (sort: ProductQuery['sort']) => (a: Product, b: Product)
   }
 };
 
-export async function getProducts(query: ProductQuery = {}): Promise<Product[]> {
+export async function getProducts(
+  query: ProductQuery = {},
+  locale: string = 'fr',
+): Promise<Product[]> {
   // ---- Category filter ----------------------------------------------------
   // The public API takes slug(s); we resolve them to UUIDs in one lookup
   // and filter on the indexed `category_id` column. `categoryIds`
@@ -256,7 +265,7 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
     throw new Error(`Supabase getProducts failed: ${error.message}`);
   }
 
-  let products = ((data ?? []) as unknown as ProductRow[]).map(toProduct);
+  let products = ((data ?? []) as unknown as ProductRow[]).map((r) => toProduct(r, locale));
 
   // ---- Post-fetch filters that don't fit cleanly in SQL ------------------
   // Price range targets the monthly+flat amount which lives on a related
@@ -281,6 +290,7 @@ export async function getProducts(query: ProductQuery = {}): Promise<Product[]> 
 export async function getProductById(
   id: string,
   options: { includeInactive?: boolean } = {},
+  locale: string = 'fr',
 ): Promise<Product | null> {
   let request = supabase.from('products').select(PRODUCT_SELECT).eq('slug', id);
   if (!options.includeInactive) {
@@ -290,14 +300,17 @@ export async function getProductById(
   if (error) {
     throw new Error(`Supabase getProductById failed: ${error.message}`);
   }
-  return data ? toProduct(data as unknown as ProductRow) : null;
+  return data ? toProduct(data as unknown as ProductRow, locale) : null;
 }
 
-export async function getTopProducts(limit = 6): Promise<Product[]> {
-  const products = await getProducts();
+export async function getTopProducts(limit = 6, locale: string = 'fr'): Promise<Product[]> {
+  const products = await getProducts({}, locale);
   return products.slice(0, limit);
 }
 
-export async function getProductsByCategory(categoryId: string): Promise<Product[]> {
-  return getProducts({ categoryId });
+export async function getProductsByCategory(
+  categoryId: string,
+  locale: string = 'fr',
+): Promise<Product[]> {
+  return getProducts({ categoryId }, locale);
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Shield, Zap, TrendingUp, Users } from 'lucide-react';
@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 
 export default function HomePage() {
   const t = useTranslations('home');
+  const locale = useLocale();
   const [carouselItems, setCarouselItems] = useState<CarouselItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [homeBlocks, setHomeBlocks] = useState<HomeBlock[]>([]);
@@ -29,17 +30,17 @@ export default function HomePage() {
   useEffect(() => {
     void (async () => {
       const [carousel, cats, blocks, products] = await Promise.all([
-        getCarouselItems(),
-        getCategories(),
+        getCarouselItems(locale),
+        getCategories(locale),
         getHomeContent(),
-        getTopProducts(6),
+        getTopProducts(6, locale),
       ]);
       setCarouselItems(carousel);
       setCategories(cats);
       setHomeBlocks(blocks);
       setTopProducts(products);
     })();
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     if (carouselItems.length === 0) return;
