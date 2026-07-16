@@ -495,6 +495,32 @@
         "notFound": "Factor not found, reload the page."
       }
     },
+    "deletion": {
+      "heading": "Delete my account",
+      "subheading": "Sensitive area — deletion is handled manually by an administrator.",
+      "explanation": "Your personal data will be anonymised in our systems within 30 days. Invoices are retained under accounting obligations (10 years), disconnected from your identity.",
+      "button": "Request account deletion",
+      "modal": {
+        "title": "Request account deletion",
+        "description": "Your request will be handled manually within 30 days. Once processed, your personal data will be anonymised. Invoices will remain archived at our payment provider under accounting obligations.",
+        "passwordLabel": "Confirm your password to continue",
+        "passwordPlaceholder": "Password",
+        "confirm": "Send request",
+        "cancel": "Cancel",
+        "busy": "Sending…"
+      },
+      "error": {
+        "passwordRequired": "Please enter your password.",
+        "passwordIncorrect": "Incorrect password.",
+        "submitFailed": "Sending failed. Try again or reach us via the contact form."
+      },
+      "toast": {
+        "success": {
+          "title": "Request sent",
+          "description": "Your deletion request is being processed. You will receive a confirmation within 30 days."
+        }
+      }
+    },
     "subscriptions": {
       "heading": "My subscriptions",
       "subheading": "Manage your Cyna subscriptions. Cancellation takes effect at the end of the paid period — you keep access until then.",

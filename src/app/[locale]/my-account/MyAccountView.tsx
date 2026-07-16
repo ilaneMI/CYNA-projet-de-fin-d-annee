@@ -13,6 +13,7 @@ import AddressBookSection from '@/features/account/AddressBookSection';
 import PaymentMethodsSection from '@/features/account/PaymentMethodsSection';
 import SubscriptionsSection from '@/features/account/SubscriptionsSection';
 import TwoFactorSection from '@/features/account/TwoFactorSection';
+import AccountDeletionSection from '@/features/account/AccountDeletionSection';
 
 const MY_ACCOUNT_PATH = '/my-account';
 
@@ -148,14 +149,16 @@ export default function MyAccountView() {
               {t('nav.subscriptions')}
             </a>
           </li>
-          <li>
-            <a
-              href="#two-factor"
-              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              {t('nav.twoFactor')}
-            </a>
-          </li>
+          {currentUser.role === 'admin' && (
+            <li>
+              <a
+                href="#two-factor"
+                className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                {t('nav.twoFactor')}
+              </a>
+            </li>
+          )}
           <li>
             <Link
               href="/orders"
@@ -171,7 +174,8 @@ export default function MyAccountView() {
       <AddressBookSection />
       <PaymentMethodsSection />
       <SubscriptionsSection />
-      <TwoFactorSection />
+      {currentUser.role === 'admin' && <TwoFactorSection />}
+      <AccountDeletionSection />
     </div>
   );
 }

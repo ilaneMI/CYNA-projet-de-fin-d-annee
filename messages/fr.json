@@ -495,6 +495,32 @@
         "notFound": "Facteur introuvable, rechargez la page."
       }
     },
+    "deletion": {
+      "heading": "Supprimer mon compte",
+      "subheading": "Zone sensible — la suppression est traitée manuellement par un administrateur.",
+      "explanation": "Vos données personnelles seront anonymisées dans nos systèmes sous 30 jours. Les factures sont conservées au titre des obligations comptables (10 ans), sans lien avec votre identité.",
+      "button": "Demander la suppression de mon compte",
+      "modal": {
+        "title": "Demander la suppression de mon compte",
+        "description": "Cette demande sera traitée manuellement sous 30 jours. Après traitement, vos données personnelles seront anonymisées. Les factures resteront archivées chez notre prestataire de paiement au titre comptable.",
+        "passwordLabel": "Confirmez votre mot de passe pour poursuivre",
+        "passwordPlaceholder": "Mot de passe",
+        "confirm": "Envoyer la demande",
+        "cancel": "Annuler",
+        "busy": "Envoi en cours…"
+      },
+      "error": {
+        "passwordRequired": "Veuillez saisir votre mot de passe.",
+        "passwordIncorrect": "Mot de passe incorrect.",
+        "submitFailed": "L'envoi a échoué. Réessayez ou écrivez-nous via le formulaire de contact."
+      },
+      "toast": {
+        "success": {
+          "title": "Demande envoyée",
+          "description": "Votre demande de suppression est en cours de traitement. Vous recevrez une confirmation sous 30 jours."
+        }
+      }
+    },
     "subscriptions": {
       "heading": "Mes abonnements",
       "subheading": "Gérez vos abonnements Cyna. La résiliation prend effet à la fin de la période payée — vous gardez l'accès jusque-là.",
